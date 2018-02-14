@@ -90,5 +90,11 @@ try! TwoWayMirror.decode(object: k, json: json)
 dump(k)
 ```
 
+The JSON implementation will decode and encode composed structs and class instances,
+Ints, Doubles and String along with Arrays of these and Arrays of structs or class instances
+which implement the TwoWayContainable protocol. For writing to an object using reflection to
+work the top level object must be an instance of a class otherwise a copy is taken when the
+object is reflected and any changes will be lost.
+
 While this approach bends a few rules the approach has proven to be robust and makes very few
 assumptions about the Swift reflection implementation.
