@@ -76,5 +76,19 @@ i["f", Date.self] = Date()
 print(i["f", Date.self])
 ```
 
+```Swift
+let data = try! Data(contentsOf: Bundle.main.url(forResource: "test",
+                                                 withExtension: "json")!)
+
+let j = C()
+try! TwoWayMirror.decode(object: j, json: data)
+dump(j)
+let json = try! TwoWayMirror.encode(object: j, options: [.prettyPrinted])
+print(String(data: json, encoding: .utf8)!)
+let k = C()
+try! TwoWayMirror.decode(object: k, json: json)
+dump(k)
+```
+
 While this approach bends a few rules the approach has proven to be robust and makes very few
 assumptions about the Swift reflection implementation.

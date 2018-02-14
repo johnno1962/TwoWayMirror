@@ -74,12 +74,12 @@ class TwoWayMirrorTests: XCTestCase {
 
         for _ in 0..<10 {
             let j = C()
-            TwoWayMirror.decode(object: j, json: data)
+            try! TwoWayMirror.decode(object: j, json: data)
             dump(j)
-            let json = TwoWayMirror.encode(object: j, options: [.prettyPrinted])
+            let json = try! TwoWayMirror.encode(object: j, options: [.prettyPrinted])
             print(String(data: json, encoding: .utf8)!)
             let k = C()
-            TwoWayMirror.decode(object: k, json: json)
+            try! TwoWayMirror.decode(object: k, json: json)
             dump(k)
         }
     }
