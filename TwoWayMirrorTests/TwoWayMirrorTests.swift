@@ -49,25 +49,28 @@ class TwoWayMirrorTests: XCTestCase {
         }
 
         if true {
-            let i = C()
-
-            i["a", [Double].self] += [11.0]
-            print(i["a", [Double].self])
-
-            i["b", Double.self] += 100.0
-            print(i.b)
-
-            i["c", String.self] += " String"
-            print(i.c)
-
-            i["d.i", Int.self] += 345
-            print(i.d.i)
-
-            i["e", E.self] = .two(str: "FFF")
-            print(i.e)
-
-            i["f", Date.self] = Date()
-            print(i["f", Date.self])
+            let instance = C()
+            
+            print(TwoWayMirror.reflectKeys(any: instance))
+            print(TwoWayMirror.reflectKeys(any: instance, path: "d"))
+            
+            TwoWayMirror.reflect(object: instance, path: "a", type: [Double].self).pointee += [11.0]
+            print(instance["a", [Double].self])
+            
+            instance["b", Double.self] += 100.0
+            print(instance.b)
+            
+            instance["c", String.self] += " String"
+            print(instance.c)
+            
+            instance["d.i", Int.self] += 345
+            print(instance.d.i)
+            
+            instance["e", E.self] = .two(str: "FFF")
+            print(instance.e)
+            
+            instance["f", Date.self] = Date()
+            print(instance["f", Date.self])
         }
 
         let data = try! Data(contentsOf: Bundle.main.url(forResource: "test",

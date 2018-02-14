@@ -5,7 +5,7 @@
 //  Created by John Holdsworth on 13/02/2018.
 //  Copyright © 2018 John Holdsworth. All rights reserved.
 //
-//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#12 $
+//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#13 $
 //
 
 import Foundation
@@ -31,14 +31,14 @@ public struct TwoWayMirror {
 
     static public func reflect(mirror: UnsafePointer<_Mirror>, path: [String]? = nil) -> TwoWayMirror {
         if var path = path, !path.isEmpty {
-            let target = path.removeFirst()
-            for index in 0..<mirror.pointee.count {
+            let key = path.removeFirst()
+            for index in 0 ..< mirror.pointee.count {
                 var (name, submirror) = mirror.pointee[index]
-                if name == target {
+                if name == key {
                     return reflect(mirror: &submirror, path: path)
                 }
             }
-            fatalError("TwoWayMirror could not find path component: \(target)")
+            fatalError("TwoWayMirror could not find path component: \(key)")
         }
 
         return mirror.withMemoryRebound(to: TwoWayMirror.self, capacity: 1) {
@@ -53,6 +53,22 @@ public struct TwoWayMirror {
             fatalError("TwoWayMirror type mismatch: \(data.metadata) != \(T.self)")
         }
         return data.ptr.assumingMemoryBound(to: T.self)
+    }
+
+    static public func reflectKeys(any: Any, path: String = "") -> [String] {
+        var mirror = _reflect(any)
+        if path != "" {
+            for key in path.components(separatedBy: ".") {
+                for index in 0 ..< mirror.count {
+                    let (name, submirror) = mirror[index]
+                    if name == key {
+                        mirror = submirror
+                        break
+                    }
+                }
+            }
+        }
+        return (0 ..< mirror.count).map { mirror[$0].0 }
     }
 }
 
@@ -166,7 +182,7 @@ extension TwoWayMirror {
             let date = TwoWayMirror.dateFormatter.date(from: try cast(any, to: String.self))!
             data.ptr.assumingMemoryBound(to: Date.self).pointee = date
         } else if mirror.pointee.count != 0, let dict = any as? [String: Any] {
-            for index in 0..<mirror.pointee.count {
+            for index in 0 ..< mirror.pointee.count {
                 var (name, submirror) = mirror.pointee[index]
                 if let value = dict[name] {
                     try decode(mirror: &submirror, any: value)
@@ -229,7 +245,7 @@ extension TwoWayMirror {
             return NSString(string: TwoWayMirror.dateFormatter.string(from: date))
         } else {//if mirror.pointee.count != 0 {
             let dict = NSMutableDictionary()
-            for index in 0..<mirror.pointee.count {
+            for index in 0 ..< mirror.pointee.count {
                 var (name, submirror) = mirror.pointee[index]
                 if name == "super" { continue }
                 dict[NSString(string: name)] = encode(mirror: &submirror)

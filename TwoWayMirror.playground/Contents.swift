@@ -27,37 +27,40 @@ class C: NSObject {
 }
 
 if true {
-    let i = C()
+    let instance = C()
 
-    TwoWayMirror.reflect(object: i, path: "a", type: [Double].self).pointee += [11.0]
-    print(i["a", [Double].self])
+    print(TwoWayMirror.reflectKeys(any: instance))
+    print(TwoWayMirror.reflectKeys(any: instance, path: "d"))
 
-    i["b", Double.self] += 100.0
-    print(i.b)
+    TwoWayMirror.reflect(object: instance, path: "a", type: [Double].self).pointee += [11.0]
+    print(instance["a", [Double].self])
 
-    i["c", String.self] += " String"
-    print(i.c)
+    instance["b", Double.self] += 100.0
+    print(instance.b)
 
-    i["d.i", Int.self] += 345
-    print(i.d.i)
+    instance["c", String.self] += " String"
+    print(instance.c)
 
-    i["e", E.self] = .two(str: "FFF")
-    print(i.e)
+    instance["d.i", Int.self] += 345
+    print(instance.d.i)
 
-    i["f", Date.self] = Date()
-    print(i["f", Date.self])
+    instance["e", E.self] = .two(str: "FFF")
+    print(instance.e)
+
+    instance["f", Date.self] = Date()
+    print(instance["f", Date.self])
 }
 
 let data = try! Data(contentsOf: Bundle.main.url(forResource: "test",
                                                  withExtension: "json")!)
 
 for _ in 0..<10 {
-    let j = C()
-    try! TwoWayMirror.decode(object: j, json: data)
-    dump(j)
-    let json = try! TwoWayMirror.encode(object: j, options: [.prettyPrinted])
+    let i1 = C()
+    try! TwoWayMirror.decode(object: i1, json: data)
+    dump(i1)
+    let json = try! TwoWayMirror.encode(object: i1, options: [.prettyPrinted])
     print(String(data: json, encoding: .utf8)!)
-    let k = C()
-    try! TwoWayMirror.decode(object: k, json: json)
-    dump(k)
+    let i2 = C()
+    try! TwoWayMirror.decode(object: i2, json: json)
+    dump(i2)
 }
