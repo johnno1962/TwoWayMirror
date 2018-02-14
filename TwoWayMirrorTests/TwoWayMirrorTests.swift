@@ -42,6 +42,7 @@ class TwoWayMirrorTests: XCTestCase {
             let f = Date()
             let g = ["A", "B"]
             let h = [S2]()
+            let i = [Int]()
             deinit {
                 print("deinit")
             }

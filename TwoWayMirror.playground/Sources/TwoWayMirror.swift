@@ -5,7 +5,7 @@
 //  Created by John Holdsworth on 13/02/2018.
 //  Copyright © 2018 John Holdsworth. All rights reserved.
 //
-//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#10 $
+//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#12 $
 //
 
 import Foundation
@@ -81,49 +81,86 @@ extension TwoWayMirror {
         try decode(mirror: &mirror, any: any)
     }
 
-    static func cast<T>(_ any: Any, to type: T.Type) throws -> T {
+    static func cast<T>(_ any: Any, to type: T.Type,
+                        file: StaticString = #file, line: UInt = #line) throws -> T {
         if let cast = any as? T {
             return cast
         }
         throw NSError(domain: "TwoWayMirror", code: -1,
-                      userInfo: [NSLocalizedDescriptionKey: "Invalid cast of \(any) to \(T.self)"])
+                      userInfo: [NSLocalizedDescriptionKey:
+                        "Invalid cast of \(any) to \(T.self) \(file):\(line)"])
     }
 
     static func decode(mirror: UnsafePointer<_Mirror>, any: Any) throws {
         let data = reflect(mirror: mirror)
         if data.metadata == Int.self {
+            #if os(Linux)
+            data.ptr.assumingMemoryBound(to: Int.self).pointee =
+                try cast(any, to: Int.self)
+            #else
             data.ptr.assumingMemoryBound(to: Int.self).pointee =
                 try cast(any, to: NSNumber.self).intValue
+            #endif
         } else if data.metadata == [Int].self {
             let array = data.ptr.assumingMemoryBound(to: [Int].self)
             array.pointee.removeAll()
-            for value in try cast(any, to: NSArray.self) {
+            #if os(Linux)
+            for value in try cast(any, to: [Int].self) {
+                array.pointee.append( value )
+            }
+            #else
+            for value in Array(try cast(any, to: NSArray.self)) {
                 array.pointee.append( try cast(value, to: NSNumber.self).intValue )
             }
+            #endif
         } else if data.metadata == Double.self {
+            #if os(Linux)
+            data.ptr.assumingMemoryBound(to: Double.self).pointee =
+                try (try? cast(any, to: Double.self)) ?? Double(try cast(any, to: Int.self))
+            #else
             data.ptr.assumingMemoryBound(to: Double.self).pointee =
                 try cast(any, to: NSNumber.self).doubleValue
+            #endif
         } else if data.metadata == [Double].self {
             let array = data.ptr.assumingMemoryBound(to: [Double].self)
             array.pointee.removeAll()
+            #if os(Linux)
+            for value in try (try? cast(any, to: [Double].self)) ??
+                    (try cast(any, to: [Int].self)).map {Double($0)} {
+                array.pointee.append( value )
+            }
+            #else
             for value in try cast(any, to: NSArray.self) {
                 array.pointee.append( try cast(value, to: NSNumber.self).doubleValue )
             }
+            #endif
         } else if data.metadata == String.self {
             data.ptr.assumingMemoryBound(to: String.self).pointee =
                 try cast(any, to: String.self)
         } else if data.metadata == [String].self {
             let array = data.ptr.assumingMemoryBound(to: [String].self)
             array.pointee.removeAll()
+            #if os(Linux)
+            for value in try cast(any, to: [String].self) {
+                array.pointee.append( value )
+            }
+            #else
             for value in try cast(any, to: NSArray.self) {
                 array.pointee.append( try cast(value, to: String.self) )
             }
+            #endif
         } else if let arrayType = data.metadata as? IsArray.Type {
             let elementType = arrayType.elementType
             if let containableType = elementType as? TwoWayContainable.Type {
+            	#if os(Linux)
+                for value in try cast(any, to: [[String: Any]].self) {
+                    try containableType.decodeElement(to: data.ptr, from: value)
+                }
+                #else
                 for value in try cast(any, to: NSArray.self) {
                     try containableType.decodeElement(to: data.ptr, from: value)
                 }
+                #endif
             }
         } else if data.metadata == Date.self {
             let date = TwoWayMirror.dateFormatter.date(from: try cast(any, to: String.self))!
@@ -154,7 +191,7 @@ extension TwoWayMirror {
         return encode(mirror: &mirror)
     }
 
-    static func encode(mirror: UnsafePointer<_Mirror>) -> Any {
+    static func encode(mirror: UnsafePointer<_Mirror>) -> NSObject {
         let data = reflect(mirror: mirror)
         if data.metadata == Int.self {
             return NSNumber(value: data.ptr.assumingMemoryBound(to: Int.self).pointee)
@@ -189,13 +226,13 @@ extension TwoWayMirror {
             return array
         } else if data.metadata == Date.self {
             let date = data.ptr.assumingMemoryBound(to: Date.self).pointee
-            return TwoWayMirror.dateFormatter.string(from: date)
+            return NSString(string: TwoWayMirror.dateFormatter.string(from: date))
         } else {//if mirror.pointee.count != 0 {
             let dict = NSMutableDictionary()
             for index in 0..<mirror.pointee.count {
                 var (name, submirror) = mirror.pointee[index]
                 if name == "super" { continue }
-                dict[name] = encode(mirror: &submirror)
+                dict[NSString(string: name)] = encode(mirror: &submirror)
             }
             return dict
         }
