@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
     s.name        = "TwoWayMirror"
-    s.version     = "1.0.0"
+    s.version     = "1.1.0"
     s.summary     = "Bi-directional reflection for Swift"
     s.homepage    = "https://github.com/johnno1962/TwoWayMirror"
     s.social_media_url = "https://twitter.com/Injection4Xcode"

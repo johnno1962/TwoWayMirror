@@ -26,15 +26,16 @@ class TwoWayMirrorTests: XCTestCase {
         // Use XCTAssert and related functions to verify your tests produce the correct results.
         enum ExampleEnum: TwoWayEnum {
             case one, two(str: String), three(int: Int), four(int: Int, int2: Int)
+
             static func decode(ptr: UnsafeMutableRawPointer, from dict: [String: Any]) {
                 let ptr = ptr.assumingMemoryBound(to: ExampleEnum.self)
                 switch dict["case"] as! String {
                 case "one":
                     ptr.pointee = .one
                 case "two":
-                    ptr.pointee = .two(str: dict["two"] as! String)
+                    ptr.pointee = .two(str: dict["let"] as! String)
                 case "three":
-                    ptr.pointee = .three(int: dict["three"] as! Int)
+                    ptr.pointee = .three(int: dict["let"] as! Int)
                 case "four":
                     ptr.pointee = .four(int: dict["int"] as! Int,
                                         int2: dict["int2"] as! Int)
