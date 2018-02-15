@@ -31,63 +31,89 @@ public extension SubScriptReflectable {
 }
 ```
 
+Example usage:
+
 ```Swift
-enum E {
-    case one, two(str: String)
+enum ExampleEnum: TwoWayEnum {
+    case one, two(str: String), three(int: Int), four(int: Int, int2: Int)
+    static func decode(ptr: UnsafeMutableRawPointer, from dict: NSDictionary) {
+        let ptr = ptr.assumingMemoryBound(to: ExampleEnum.self)
+        switch dict["case"] as! String {
+        case "one":
+            ptr.pointee = .one
+        case "two":
+            ptr.pointee = .two(str: dict["two"] as! String)
+        case "three":
+            ptr.pointee = .three(int: dict["three"] as! Int)
+        case "four":
+            ptr.pointee = .four(int: dict["int"] as! Int,
+                                int2: dict["int2"] as! Int)
+        default:
+            fatalError("Invalid case: \(dict["case"]!)")
+        }
+    }
 }
-struct S {
+struct ExampleStruct {
     let i = 123
 }
-struct S2: TwoWayContainable {
+struct ContainableStruct: TwoWayContainable {
     var a1 = 0, a2 = 0
 }
-class C: NSObject {
+class ExampleClass: NSObject {
     let a = [98.0]
     let b = 199.0
     let c = "Hello"
-    let d = S()
-    let e = E.one
+    let d = ExampleStruct()
+    let e = ExampleEnum.four(int: 1, int2: 9)
     let f = Date()
     let g = ["A", "B"]
-    let h = [S2]()
+    let h = [ContainableStruct]()
+    let i = [Int]()
     deinit {
         print("deinit")
     }
 }
 
-let i = C()
+if true {
+    let instance = ExampleClass()
 
-TwoWayMirror.reflect(object: i, path: "a", type: [Double].self).pointee += [11.0]
-print(i["a", [Double].self])
+    print(TwoWayMirror.reflectKeys(any: instance))
+    print(TwoWayMirror.reflectKeys(any: instance, path: "d"))
 
-i["b", Double.self] += 100.0
-print(i.b)
+    TwoWayMirror.reflect(object: instance, path: "a", type: [Double].self).pointee += [11.0]
+    print(instance["a", [Double].self])
 
-i["c", String.self] += " String"
-print(i.c)
+    instance["b", Double.self] += 100.0
+    print(instance.b)
 
-i["d.i", Int.self] += 345
-print(i.d.i)
+    instance["c", String.self] += " String"
+    print(instance.c)
 
-i["e", E.self] = .two(str: "FFF")
-print(i.e)
+    instance["d.i", Int.self] += 345
+    print(instance.d.i)
 
-i["f", Date.self] = Date()
-print(i["f", Date.self])
+    instance["e", ExampleEnum.self] = .two(str: "TWO")
+    print(instance.e)
+
+    instance["f", Date.self] = Date()
+    print(instance["f", Date.self])
+}
 ```
+
+JSON decoding and encoding:
 
 ```Swift
 let data = try! Data(contentsOf: Bundle.main.url(forResource: "test",
                                                  withExtension: "json")!)
 
-let j = C()
-try! TwoWayMirror.decode(object: j, json: data)
-dump(j)
-let json = try! TwoWayMirror.encode(object: j, options: [.prettyPrinted])
+let i1 = ExampleClass()
+try! TwoWayMirror.decode(object: i1, json: data)
+dump(i1)
+let json = try! TwoWayMirror.encode(object: i1, options: [.prettyPrinted])
 print(String(data: json, encoding: .utf8)!)
-let k = C()
-try! TwoWayMirror.decode(object: k, json: json)
-dump(k)
+let i2 = ExampleClass()
+try! TwoWayMirror.decode(object: i2, json: json)
+dump(i2)
 ```
 
 The JSON implementation will decode and encode composed structs and class instances,
@@ -95,6 +121,9 @@ Ints, Doubles and String along with Arrays of these and Arrays of structs or cla
 which implement the TwoWayContainable protocol. For writing to an object using reflection to
 work the top level object must be an instance of a class otherwise a copy is taken when the
 object is reflected and any changes will be lost.
+
+Automatic encoding of enums is possible but for decoding you must opt-in to the TwoWayEnum
+protocol and supply an implementation to initialise an enum from a dictionary.
 
 While this approach bends a few rules the approach has proven to be robust and makes very few
 assumptions about the Swift reflection implementation.

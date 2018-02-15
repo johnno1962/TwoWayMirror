@@ -24,24 +24,40 @@ class TwoWayMirrorTests: XCTestCase {
     func testExample() {
         // This is an example of a functional test case.
         // Use XCTAssert and related functions to verify your tests produce the correct results.
-        enum E {
-            case one, two(str: String)
+        enum ExampleEnum: TwoWayEnum {
+            case one, two(str: String), three(int: Int), four(int: Int, int2: Int)
+            static func decode(ptr: UnsafeMutableRawPointer, from dict: [String: Any]) {
+                let ptr = ptr.assumingMemoryBound(to: ExampleEnum.self)
+                switch dict["case"] as! String {
+                case "one":
+                    ptr.pointee = .one
+                case "two":
+                    ptr.pointee = .two(str: dict["two"] as! String)
+                case "three":
+                    ptr.pointee = .three(int: dict["three"] as! Int)
+                case "four":
+                    ptr.pointee = .four(int: dict["int"] as! Int,
+                                        int2: dict["int2"] as! Int)
+                default:
+                    fatalError("Invalid case: \(dict["case"]!)")
+                }
+            }
         }
-        struct S {
+        struct ExampleStruct {
             let i = 123
         }
-        struct S2: TwoWayContainable {
+        struct ContainableStruct: TwoWayContainable {
             var a1 = 0, a2 = 0
         }
-        class C: NSObject {
+        class ExampleClass: NSObject {
             let a = [98.0]
             let b = 199.0
             let c = "Hello"
-            let d = S()
-            let e = E.one
+            let d = ExampleStruct()
+            let e = ExampleEnum.four(int: 1, int2: 9)
             let f = Date()
             let g = ["A", "B"]
-            let h = [S2]()
+            let h = [ContainableStruct]()
             let i = [Int]()
             deinit {
                 print("deinit")
@@ -49,26 +65,30 @@ class TwoWayMirrorTests: XCTestCase {
         }
 
         if true {
-            let instance = C()
-            
+            let instance = ExampleClass()
+
             print(TwoWayMirror.reflectKeys(any: instance))
             print(TwoWayMirror.reflectKeys(any: instance, path: "d"))
-            
+
             TwoWayMirror.reflect(object: instance, path: "a", type: [Double].self).pointee += [11.0]
             print(instance["a", [Double].self])
-            
+
             instance["b", Double.self] += 100.0
             print(instance.b)
-            
+
             instance["c", String.self] += " String"
             print(instance.c)
-            
+
             instance["d.i", Int.self] += 345
             print(instance.d.i)
-            
-            instance["e", E.self] = .two(str: "FFF")
+
+            print(TwoWayMirror.reflectKeys(any: instance, path: "e"))
+            instance["e", ExampleEnum.self] = .two(str: "FFF")
             print(instance.e)
-            
+            print(TwoWayMirror.reflectKeys(any: instance, path: "e"))
+            print(TwoWayMirror.reflectKeys(any: instance, path: "e.two"))
+            print(MemoryLayout<ExampleEnum>.size)
+
             instance["f", Date.self] = Date()
             print(instance["f", Date.self])
         }
@@ -77,14 +97,14 @@ class TwoWayMirrorTests: XCTestCase {
                                                          withExtension: "json")!)
 
         for _ in 0..<10 {
-            let j = C()
-            try! TwoWayMirror.decode(object: j, json: data)
-            dump(j)
-            let json = try! TwoWayMirror.encode(object: j, options: [.prettyPrinted])
+            let i1 = ExampleClass()
+            try! TwoWayMirror.decode(object: i1, json: data)
+            dump(i1)
+            let json = try! TwoWayMirror.encode(object: i1, options: [.prettyPrinted])
             print(String(data: json, encoding: .utf8)!)
-            let k = C()
-            try! TwoWayMirror.decode(object: k, json: json)
-            dump(k)
+            let i2 = ExampleClass()
+            try! TwoWayMirror.decode(object: i2, json: json)
+            dump(i2)
         }
     }
     

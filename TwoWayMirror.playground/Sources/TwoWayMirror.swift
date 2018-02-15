@@ -5,7 +5,7 @@
 //  Created by John Holdsworth on 13/02/2018.
 //  Copyright © 2018 John Holdsworth. All rights reserved.
 //
-//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#13 $
+//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#20 $
 //
 
 import Foundation
@@ -16,6 +16,10 @@ import Foundation
 
 @_silgen_name("swift_reflectAny")
 internal func _reflect<T>(_ x: T) -> _Mirror
+
+@_silgen_name("swift_EnumMirror_caseName")
+internal func _enumMirror_caseName(
+    _ data: _MagicMirrorData) -> UnsafePointer<CChar>
 
 // _Mirror is a protocol with concrete implementations _StructMirror, _ClassMirror etc
 // which fit into the 3 slots available in the "existential" data structure representing
@@ -29,7 +33,7 @@ public struct TwoWayMirror {
 //    let protocolType: Any.Type
 //    let protocolWitness: UnsafeMutableRawPointer
 
-    static public func reflect(mirror: UnsafePointer<_Mirror>, path: [String]? = nil) -> TwoWayMirror {
+    public static func reflect(mirror: UnsafePointer<_Mirror>, path: [String]? = nil) -> TwoWayMirror {
         if var path = path, !path.isEmpty {
             let key = path.removeFirst()
             for index in 0 ..< mirror.pointee.count {
@@ -42,20 +46,21 @@ public struct TwoWayMirror {
         }
 
         return mirror.withMemoryRebound(to: TwoWayMirror.self, capacity: 1) {
-            return $0.pointee
+            $0.pointee
         }
     }
 
-    static public func reflect<T>(object: AnyObject, path: String, type: T.Type) -> UnsafeMutablePointer<T> {
+    public static func reflect<T>(object: AnyObject, path: String, type: T.Type,
+            file: StaticString = #file, line: UInt = #line) -> UnsafeMutablePointer<T> {
         var mirror = _reflect(object)
         let data = reflect(mirror: &mirror, path: path.components(separatedBy: "."))
         if data.metadata != T.self {
-            fatalError("TwoWayMirror type mismatch: \(data.metadata) != \(T.self)")
+            fatalError("TwoWayMirror type mismatch: \(data.metadata) != \(T.self) at \(file)#\(line)")
         }
         return data.ptr.assumingMemoryBound(to: T.self)
     }
 
-    static public func reflectKeys(any: Any, path: String = "") -> [String] {
+    public static func reflectKeys(any: Any, path: String = "") -> [String] {
         var mirror = _reflect(any)
         if path != "" {
             for key in path.components(separatedBy: ".") {
@@ -88,11 +93,11 @@ public extension SubScriptReflectable {
 /// JSON encoding / decoding
 extension TwoWayMirror {
 
-    static public func decode(object: AnyObject, json: Data) throws {
+    public static func decode(object: AnyObject, json: Data) throws {
         try decode(object: object, any: try JSONSerialization.jsonObject(with: json))
     }
 
-    static public func decode(object: AnyObject, any: Any) throws {
+    public static func decode(object: AnyObject, any: Any) throws {
         var mirror = _reflect(object)
         try decode(mirror: &mirror, any: any)
     }
@@ -104,84 +109,61 @@ extension TwoWayMirror {
         }
         throw NSError(domain: "TwoWayMirror", code: -1,
                       userInfo: [NSLocalizedDescriptionKey:
-                        "Invalid cast of \(any) to \(T.self) \(file):\(line)"])
+                        "Invalid cast of \(any) to \(T.self) at \(file)#\(line)"])
     }
 
     static func decode(mirror: UnsafePointer<_Mirror>, any: Any) throws {
         let data = reflect(mirror: mirror)
         if data.metadata == Int.self {
-            #if os(Linux)
             data.ptr.assumingMemoryBound(to: Int.self).pointee =
                 try cast(any, to: Int.self)
-            #else
-            data.ptr.assumingMemoryBound(to: Int.self).pointee =
-                try cast(any, to: NSNumber.self).intValue
-            #endif
-        } else if data.metadata == [Int].self {
+        }
+        else if data.metadata == [Int].self {
             let array = data.ptr.assumingMemoryBound(to: [Int].self)
             array.pointee.removeAll()
-            #if os(Linux)
             for value in try cast(any, to: [Int].self) {
                 array.pointee.append( value )
             }
-            #else
-            for value in Array(try cast(any, to: NSArray.self)) {
-                array.pointee.append( try cast(value, to: NSNumber.self).intValue )
-            }
-            #endif
-        } else if data.metadata == Double.self {
-            #if os(Linux)
+        }
+        else if data.metadata == Double.self {
             data.ptr.assumingMemoryBound(to: Double.self).pointee =
                 try (try? cast(any, to: Double.self)) ?? Double(try cast(any, to: Int.self))
-            #else
-            data.ptr.assumingMemoryBound(to: Double.self).pointee =
-                try cast(any, to: NSNumber.self).doubleValue
-            #endif
-        } else if data.metadata == [Double].self {
+        }
+        else if data.metadata == [Double].self {
             let array = data.ptr.assumingMemoryBound(to: [Double].self)
             array.pointee.removeAll()
-            #if os(Linux)
             for value in try (try? cast(any, to: [Double].self)) ??
                     (try cast(any, to: [Int].self)).map {Double($0)} {
                 array.pointee.append( value )
             }
-            #else
-            for value in try cast(any, to: NSArray.self) {
-                array.pointee.append( try cast(value, to: NSNumber.self).doubleValue )
-            }
-            #endif
-        } else if data.metadata == String.self {
+        }
+        else if data.metadata == String.self {
             data.ptr.assumingMemoryBound(to: String.self).pointee =
                 try cast(any, to: String.self)
-        } else if data.metadata == [String].self {
+        }
+        else if data.metadata == [String].self {
             let array = data.ptr.assumingMemoryBound(to: [String].self)
             array.pointee.removeAll()
-            #if os(Linux)
             for value in try cast(any, to: [String].self) {
                 array.pointee.append( value )
             }
-            #else
-            for value in try cast(any, to: NSArray.self) {
-                array.pointee.append( try cast(value, to: String.self) )
-            }
-            #endif
-        } else if let arrayType = data.metadata as? IsArray.Type {
+        }
+        else if let arrayType = data.metadata as? IsArray.Type {
             let elementType = arrayType.elementType
             if let containableType = elementType as? TwoWayContainable.Type {
-            	#if os(Linux)
                 for value in try cast(any, to: [[String: Any]].self) {
                     try containableType.decodeElement(to: data.ptr, from: value)
                 }
-                #else
-                for value in try cast(any, to: NSArray.self) {
-                    try containableType.decodeElement(to: data.ptr, from: value)
-                }
-                #endif
             }
-        } else if data.metadata == Date.self {
+        }
+        else if data.metadata == Date.self {
             let date = TwoWayMirror.dateFormatter.date(from: try cast(any, to: String.self))!
             data.ptr.assumingMemoryBound(to: Date.self).pointee = date
-        } else if mirror.pointee.count != 0, let dict = any as? [String: Any] {
+        }
+        else if let enumType = data.metadata as? TwoWayEnum.Type {
+            enumType.decode(ptr: data.ptr, from: try cast(any, to: [String: Any].self))
+        }
+        else if mirror.pointee.count != 0, let dict = any as? [String: Any] {
             for index in 0 ..< mirror.pointee.count {
                 var (name, submirror) = mirror.pointee[index]
                 if let value = dict[name] {
@@ -197,12 +179,12 @@ extension TwoWayMirror {
         return dateFormatter
     }()
 
-    static public func encode(object: AnyObject,
+    public static func encode(object: AnyObject,
                               options: JSONSerialization.WritingOptions) throws -> Data {
         return try JSONSerialization.data(withJSONObject: encode(object: object), options: options)
     }
 
-    static public func encode(object: AnyObject) -> Any {
+    public static func encode(object: AnyObject) -> Any {
         var mirror = _reflect(object)
         return encode(mirror: &mirror)
     }
@@ -211,39 +193,66 @@ extension TwoWayMirror {
         let data = reflect(mirror: mirror)
         if data.metadata == Int.self {
             return NSNumber(value: data.ptr.assumingMemoryBound(to: Int.self).pointee)
-        } else if data.metadata == [Int].self {
+        }
+        else if data.metadata == [Int].self {
             let array = NSMutableArray()
             for value in data.ptr.assumingMemoryBound(to: [Int].self).pointee {
                 array.add( NSNumber(value: value) )
             }
             return array
-        } else if data.metadata == Double.self {
+        }
+        else if data.metadata == Double.self {
             return NSNumber(value: data.ptr.assumingMemoryBound(to: Double.self).pointee)
-        } else if data.metadata == [Double].self {
+        }
+        else if data.metadata == [Double].self {
             let array = NSMutableArray()
             for value in data.ptr.assumingMemoryBound(to: [Double].self).pointee {
                 array.add( NSNumber(value: value) )
             }
             return array
-        } else if data.metadata == String.self {
+        }
+        else if data.metadata == String.self {
             return NSString(string: data.ptr.assumingMemoryBound(to: String.self).pointee)
-        } else if data.metadata == [String].self {
+        }
+        else if data.metadata == [String].self {
             let array = NSMutableArray()
             for value in data.ptr.assumingMemoryBound(to: [String].self).pointee {
                 array.add( NSString(string: value) )
             }
             return array
-        } else if let arrayType = data.metadata as? IsArray.Type {
+        }
+        else if let arrayType = data.metadata as? IsArray.Type {
             let array = NSMutableArray()
             let elementType = arrayType.elementType
             if let containableType = elementType as? TwoWayContainable.Type {
                 containableType.encodeElements(from: data.ptr, into: array)
             }
             return array
-        } else if data.metadata == Date.self {
+        }
+        else if data.metadata == Date.self {
             let date = data.ptr.assumingMemoryBound(to: Date.self).pointee
             return NSString(string: TwoWayMirror.dateFormatter.string(from: date))
-        } else {//if mirror.pointee.count != 0 {
+        }
+        else if data.metadata is TwoWayEnum.Type {
+            let dict = NSMutableDictionary()
+            dict[NSString(string: "case")] =
+                mirror.withMemoryRebound(to: _MagicMirrorData.self, capacity: 1) {
+                    String(cString: _enumMirror_caseName($0.pointee))
+            }
+            if mirror.pointee.count != 0 {
+                var (name, submirror) = mirror.pointee[0]
+                if submirror.count == 1 {
+                    dict[NSString(string: name)] = encode(mirror: &submirror)
+                } else {
+                    for index in 0 ..< submirror.count {
+                        var (name, casemirror) = submirror[index]
+                        dict[NSString(string: name)] = encode(mirror: &casemirror)
+                    }
+                }
+            }
+            return dict
+        }
+        else {//if mirror.pointee.count != 0 {
             let dict = NSMutableDictionary()
             for index in 0 ..< mirror.pointee.count {
                 var (name, submirror) = mirror.pointee[index]
@@ -284,4 +293,9 @@ extension TwoWayContainable {
 }
 private class Cricible<T: TwoWayContainable> {
     var instance = T()
+}
+
+/// decoding/encoding enums
+public protocol TwoWayEnum {
+    static func decode(ptr: UnsafeMutableRawPointer, from dict: [String: Any])
 }
