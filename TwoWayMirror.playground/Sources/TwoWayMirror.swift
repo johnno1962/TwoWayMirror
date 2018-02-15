@@ -5,7 +5,7 @@
 //  Created by John Holdsworth on 13/02/2018.
 //  Copyright © 2018 John Holdsworth. All rights reserved.
 //
-//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#25 $
+//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#26 $
 //
 
 import Foundation
@@ -34,6 +34,28 @@ public struct TwoWayMirror {
     public let metadata: Any.Type
 //    let protocolType: Any.Type
 //    let protocolWitness: UnsafeMutableRawPointer
+
+    /// cast data potiner to specific type
+    ///
+    /// - Parameters:
+    ///   - type: assumed type of ivar
+    /// - Returns: typed pointer to ivar
+    public func typedPointer<T>(type: T.Type, file: StaticString = #file, line: UInt = #line)
+        -> UnsafeMutablePointer<T> {
+            if metadata != T.self {
+                fatalError("TwoWayMirror type mismatch: \(metadata) != \(T.self) at \(file)#\(line)")
+            }
+            return ptr.assumingMemoryBound(to: T.self)
+    }
+
+    public subscript<T> (type: T.Type) -> T {
+        get {
+            return typedPointer(type: T.self).pointee
+        }
+        set(newValue) {
+            typedPointer(type: T.self).pointee = newValue
+        }
+    }
 
     /// Get TwoWayMirror information for a mirrored ivar
     ///
@@ -69,10 +91,7 @@ public struct TwoWayMirror {
             file: StaticString = #file, line: UInt = #line) -> UnsafeMutablePointer<T> {
         var mirror = _reflect(object)
         let data = reflect(mirror: &mirror, path: path.components(separatedBy: "."))
-        if data.metadata != T.self {
-            fatalError("TwoWayMirror type mismatch: \(data.metadata) != \(T.self) at \(file)#\(line)")
-        }
-        return data.ptr.assumingMemoryBound(to: T.self)
+        return data.typedPointer(type: T.self)
     }
 
     /// List ivars of class struct of interest
@@ -151,7 +170,7 @@ extension TwoWayMirror {
     }
 
     static func decode(mirror: UnsafePointer<_Mirror>, any: Any?) throws {
-        let data = reflect(mirror: mirror)
+        var data = reflect(mirror: mirror)
         if let optionalType = data.metadata as? IsOptional.Type {
             try optionalType.decode(ptr: data.ptr, any: any)
             return
@@ -161,33 +180,27 @@ extension TwoWayMirror {
         }
 
         if data.metadata == Int.self {
-            data.ptr.assumingMemoryBound(to: Int.self).pointee =
-                try cast(any, to: Int.self)
+            data[Int.self] = try cast(any, to: Int.self)
         }
         else if data.metadata == Double.self {
-            data.ptr.assumingMemoryBound(to: Double.self).pointee =
+            data[Double.self] =
                 try (try? cast(any, to: Double.self)) ?? Double(try cast(any, to: Int.self))
         }
         else if data.metadata == String.self {
-            data.ptr.assumingMemoryBound(to: String.self).pointee =
-                try cast(any, to: String.self)
+            data[String.self] = try cast(any, to: String.self)
         }
         else if data.metadata == Date.self {
-            let date = TwoWayMirror.dateFormatter.date(from: try cast(any, to: String.self))!
-            data.ptr.assumingMemoryBound(to: Date.self).pointee = date
+            data[Date.self] = TwoWayMirror.dateFormatter.date(from: try cast(any, to: String.self))!
         }
         else if data.metadata == [Int].self {
-            let array = data.ptr.assumingMemoryBound(to: [Int].self)
-            array.pointee = try cast(any, to: [Int].self)
+            data[[Int].self] = try cast(any, to: [Int].self)
         }
         else if data.metadata == [Double].self {
-            let array = data.ptr.assumingMemoryBound(to: [Double].self)
-            array.pointee = try (try? cast(any, to: [Double].self)) ??
-                (try cast(any, to: [Int].self)).map {Double($0)}
+            data[[Double].self] = try (try? cast(any, to: [Double].self)) ??
+                            (try cast(any, to: [Int].self)).map {Double($0)}
         }
         else if data.metadata == [String].self {
-            let array = data.ptr.assumingMemoryBound(to: [String].self)
-            array.pointee = try cast(any, to: [String].self)
+            data[[String].self] = try cast(any, to: [String].self)
         }
         else if let arrayType = data.metadata as? IsArray.Type {
             if let containableType = arrayType.elementType as? TwoWayContainable.Type {
@@ -235,35 +248,35 @@ extension TwoWayMirror {
     static func encode(mirror: UnsafePointer<_Mirror>) -> NSObject {
         let data = reflect(mirror: mirror)
         if data.metadata == Int.self {
-            return NSNumber(value: data.ptr.assumingMemoryBound(to: Int.self).pointee)
+            return NSNumber(value: data[Int.self])
         }
         else if data.metadata == Double.self {
-            return NSNumber(value: data.ptr.assumingMemoryBound(to: Double.self).pointee)
+            return NSNumber(value: data[Double.self])
         }
         else if data.metadata == String.self {
-            return NSString(string: data.ptr.assumingMemoryBound(to: String.self).pointee)
+            return NSString(string: data[String.self])
         }
         else if data.metadata == Date.self {
-            let date = data.ptr.assumingMemoryBound(to: Date.self).pointee
+            let date = data[Date.self]
             return NSString(string: TwoWayMirror.dateFormatter.string(from: date))
         }
         else if data.metadata == [Int].self {
             let array = NSMutableArray()
-            for value in data.ptr.assumingMemoryBound(to: [Int].self).pointee {
+            for value in data[[Int].self] {
                 array.add( NSNumber(value: value) )
             }
             return array
         }
         else if data.metadata == [Double].self {
             let array = NSMutableArray()
-            for value in data.ptr.assumingMemoryBound(to: [Double].self).pointee {
+            for value in data[[Double].self] {
                 array.add( NSNumber(value: value) )
             }
             return array
         }
         else if data.metadata == [String].self {
             let array = NSMutableArray()
-            for value in data.ptr.assumingMemoryBound(to: [String].self).pointee {
+            for value in data[[String].self] {
                 array.add( NSString(string: value) )
             }
             return array
@@ -374,8 +387,7 @@ extension Optional: IsOptional {
     }
     static func encode(mirror: UnsafePointer<_Mirror>) -> NSObject {
         let data = TwoWayMirror.reflect(mirror: mirror)
-        let ptr = data.ptr.assumingMemoryBound(to: Optional<Wrapped>.self)
-        if ptr.pointee != nil {
+        if data[Optional<Wrapped>.self] != nil {
             var (_, submirror) = mirror.pointee[0]
             return TwoWayMirror.encode(mirror: &submirror)
         }
