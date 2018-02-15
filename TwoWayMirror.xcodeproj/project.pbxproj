@@ -14,7 +14,6 @@
 		BB76536A203476E300BBD463 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB765369203476E300BBD463 /* Assets.xcassets */; };
 		BB76536D203476E300BBD463 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB76536B203476E300BBD463 /* LaunchScreen.storyboard */; };
 		BB765378203476E300BBD463 /* TwoWayMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB765377203476E300BBD463 /* TwoWayMirrorTests.swift */; };
-		BB7653832034779D00BBD463 /* test.json in Resources */ = {isa = PBXBuildFile; fileRef = BB7653822034779D00BBD463 /* test.json */; };
 		BB765385203477AD00BBD463 /* TwoWayMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB765384203477AC00BBD463 /* TwoWayMirror.swift */; };
 /* End PBXBuildFile section */
 
@@ -40,7 +39,6 @@
 		BB765373203476E300BBD463 /* TwoWayMirrorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TwoWayMirrorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB765377203476E300BBD463 /* TwoWayMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoWayMirrorTests.swift; sourceTree = "<group>"; };
 		BB765379203476E300BBD463 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		BB7653822034779D00BBD463 /* test.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; name = test.json; path = TwoWayMirror.playground/Resources/test.json; sourceTree = SOURCE_ROOT; };
 		BB765384203477AC00BBD463 /* TwoWayMirror.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = TwoWayMirror.swift; path = TwoWayMirror.playground/Sources/TwoWayMirror.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -91,7 +89,6 @@
 				BB765369203476E300BBD463 /* Assets.xcassets */,
 				BB76536B203476E300BBD463 /* LaunchScreen.storyboard */,
 				BB76536E203476E300BBD463 /* Info.plist */,
-				BB7653822034779D00BBD463 /* test.json */,
 			);
 			path = TwoWayMirror;
 			sourceTree = "<group>";
@@ -191,7 +188,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB76536D203476E300BBD463 /* LaunchScreen.storyboard in Resources */,
-				BB7653832034779D00BBD463 /* test.json in Resources */,
 				BB76536A203476E300BBD463 /* Assets.xcassets in Resources */,
 				BB765368203476E200BBD463 /* Main.storyboard in Resources */,
 			);

@@ -5,7 +5,7 @@
 //  Created by John Holdsworth on 13/02/2018.
 //  Copyright © 2018 John Holdsworth. All rights reserved.
 //
-//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#20 $
+//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#23 $
 //
 
 import Foundation
@@ -102,18 +102,25 @@ extension TwoWayMirror {
         try decode(mirror: &mirror, any: any)
     }
 
-    static func cast<T>(_ any: Any, to type: T.Type,
+    static func cast<T>(_ any: Any?, to type: T.Type,
                         file: StaticString = #file, line: UInt = #line) throws -> T {
         if let cast = any as? T {
             return cast
         }
         throw NSError(domain: "TwoWayMirror", code: -1,
                       userInfo: [NSLocalizedDescriptionKey:
-                        "Invalid cast of \(any) to \(T.self) at \(file)#\(line)"])
+                        "Invalid cast of \(any!) to \(T.self) at \(file)#\(line)"])
     }
 
-    static func decode(mirror: UnsafePointer<_Mirror>, any: Any) throws {
+    static func decode(mirror: UnsafePointer<_Mirror>, any: Any?) throws {
         let data = reflect(mirror: mirror)
+        if let optionalType = data.metadata as? IsOptional.Type {
+            try optionalType.decode(ptr: data.ptr, any: any)
+            return
+        }
+        else if any == nil {
+            return
+        }
         if data.metadata == Int.self {
             data.ptr.assumingMemoryBound(to: Int.self).pointee =
                 try cast(any, to: Int.self)
@@ -166,9 +173,7 @@ extension TwoWayMirror {
         else if mirror.pointee.count != 0, let dict = any as? [String: Any] {
             for index in 0 ..< mirror.pointee.count {
                 var (name, submirror) = mirror.pointee[index]
-                if let value = dict[name] {
-                    try decode(mirror: &submirror, any: value)
-                }
+                try decode(mirror: &submirror, any: dict[name])
             }
         }
     }
@@ -233,6 +238,9 @@ extension TwoWayMirror {
             let date = data.ptr.assumingMemoryBound(to: Date.self).pointee
             return NSString(string: TwoWayMirror.dateFormatter.string(from: date))
         }
+        else if let enumType = data.metadata as? IsOptional.Type {
+            return enumType.encode(mirror: mirror)
+        }
         else if data.metadata is TwoWayEnum.Type {
             let dict = NSMutableDictionary()
             dict[NSString(string: "case")] =
@@ -276,12 +284,17 @@ extension Array: IsArray {
 public protocol TwoWayContainable {
     init()
 }
+extension Array: TwoWayContainable {}
+
 extension TwoWayContainable {
-    static func decodeElement(to ptr: UnsafeMutableRawPointer, from: Any) throws {
+    static func decodeElement(from: Any) throws -> Self {
         let instanceHolder = Cricible<Self>()
         var mirror = _reflect(instanceHolder)[0].1
         try TwoWayMirror.decode(mirror: &mirror, any: from)
-        ptr.assumingMemoryBound(to: [Self].self).pointee.append(instanceHolder.instance)
+        return instanceHolder.instance
+    }
+    static func decodeElement(to ptr: UnsafeMutableRawPointer?, from any: Any) throws {
+        ptr?.assumingMemoryBound(to: [Self].self).pointee.append(try decodeElement(from: any))
     }
     static func encodeElements(from ptr: UnsafeMutableRawPointer, into array: NSMutableArray) {
         let values = ptr.assumingMemoryBound(to: [Self].self)
@@ -293,6 +306,38 @@ extension TwoWayContainable {
 }
 private class Cricible<T: TwoWayContainable> {
     var instance = T()
+}
+
+/// Optionals
+private protocol IsOptional {
+    static func decode(ptr: UnsafeMutableRawPointer, any: Any?) throws
+    static func encode(mirror: UnsafePointer<_Mirror>) -> NSObject
+}
+extension Optional: IsOptional {
+    static func decode(ptr: UnsafeMutableRawPointer, any: Any?) throws {
+        let optionalPtr = ptr.assumingMemoryBound(to: Optional<Wrapped>.self)
+        if let any = any, !(any is NSNull) {
+            if let subtype = Wrapped.self as? TwoWayContainable.Type {
+                let instance = try subtype.decodeElement(from: any)
+                optionalPtr.pointee = .some(try TwoWayMirror.cast(instance, to: Wrapped.self))
+            }
+            else {
+                optionalPtr.pointee = .some(try TwoWayMirror.cast(any, to: Wrapped.self))
+            }
+        }
+        else {
+            optionalPtr.pointee = nil
+        }
+    }
+    static func encode(mirror: UnsafePointer<_Mirror>) -> NSObject {
+        let data = TwoWayMirror.reflect(mirror: mirror)
+        let ptr = data.ptr.assumingMemoryBound(to: Optional<Wrapped>.self)
+        if ptr.pointee != nil {
+            var (_, submirror) = mirror.pointee[0]
+            return TwoWayMirror.encode(mirror: &submirror)
+        }
+        return NSNull()
+    }
 }
 
 /// decoding/encoding enums

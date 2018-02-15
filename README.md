@@ -69,6 +69,7 @@ class ExampleClass: NSObject {
     let g = ["A", "B"]
     let h = [ContainableStruct]()
     let i = [Int]()
+    let j: Int? = nil
     deinit {
         print("deinit")
     }
@@ -103,8 +104,31 @@ if true {
 JSON decoding and encoding:
 
 ```Swift
-let data = try! Data(contentsOf: Bundle.main.url(forResource: "test",
-                                                 withExtension: "json")!)
+let data = """
+    {
+    "a": [77.0, 88.0],
+    "b": 999.0,
+    "c": "hello",
+    "d": {
+        "i": 789
+    },
+    "f": "2018-02-14 06:39:41 +0000",
+    "g": ["Hello", "World"],
+    "h": [
+          {
+          "a1": 11, "a2": 22
+          },
+          {
+          "a1": 111, "a2": 222
+          }
+          ],
+    "i": [12345, 67890],
+    "j": [99, 101],
+    "k": {
+          "a1": 1111, "a2": 2222
+          }
+    }
+    """.data(using: .utf8)!
 
 let i1 = ExampleClass()
 try! TwoWayMirror.decode(object: i1, json: data)
@@ -117,10 +141,10 @@ dump(i2)
 ```
 
 The JSON implementation will decode and encode composed structs and class instances,
-Ints, Doubles and String along with Arrays of these and Arrays of structs or class instances
-which implement the TwoWayContainable protocol. For writing to an object using reflection to
-work the top level object must be an instance of a class otherwise a copy is taken when the
-object is reflected and any changes will be lost.
+Ints, Doubles and String along with Arrays or Optionals of these and Arrays or Optionals of
+structs or class instances which implement the `TwoWayContainable` protocol. For writing to
+an object using reflection to work the top level object must be an instance of a class otherwise
+a copy is taken when the object is reflected and any changes will be lost.
 
 Automatic encoding of enums is possible but for decoding you must opt-in to the TwoWayEnum
 protocol and supply an implementation to initialise an enum from a dictionary.

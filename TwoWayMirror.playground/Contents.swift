@@ -35,8 +35,10 @@ class ExampleClass: NSObject {
     let e = ExampleEnum.four(int: 1, int2: 9)
     let f = Date()
     let g = ["A", "B"]
-    let h = [ContainableStruct]()
+    let h: [ContainableStruct]? = nil
     let i = [Int]()
+    let j: [Int]? = nil
+    let k: ContainableStruct? = nil
     deinit {
         print("deinit")
     }
@@ -67,8 +69,31 @@ if true {
     print(instance["f", Date.self])
 }
 
-let data = try! Data(contentsOf: Bundle.main.url(forResource: "test",
-                                                 withExtension: "json")!)
+let data = """
+    {
+    "a": [77.0, 88.0],
+    "b": 999.0,
+    "c": "hello",
+    "d": {
+        "i": 789
+    },
+    "f": "2018-02-14 06:39:41 +0000",
+    "g": ["Hello", "World"],
+    "h": [
+          {
+          "a1": 11, "a2": 22
+          },
+          {
+          "a1": 111, "a2": 222
+          }
+          ],
+    "i": [12345, 67890],
+    "j": [99, 101],
+    "k": {
+          "a1": 1111, "a2": 2222
+          }
+    }
+    """.data(using: .utf8)!
 
 for _ in 0..<10 {
     let i1 = ExampleClass()
