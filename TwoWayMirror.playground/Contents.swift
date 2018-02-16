@@ -5,20 +5,22 @@ import Foundation
 enum ExampleEnum: TwoWayEnum {
     case one, two(str: String), three(int: Int), four(int: Int, int2: Int)
 
-    static func decode(ptr: UnsafeMutableRawPointer, from dict: [String: Any]) {
-        let ptr = ptr.assumingMemoryBound(to: ExampleEnum.self)
-        switch dict["case"] as! String {
+    static func decode(data: inout TwoWayMirror, from: [String: Any]) throws {
+        let ptr = data.pointer(type: ExampleEnum.self)
+        switch from["case"] as! String {
         case "one":
             ptr.pointee = .one
         case "two":
-            ptr.pointee = .two(str: dict["let"] as! String)
+            ptr.pointee = .two(str: from["let"] as! String)
         case "three":
-            ptr.pointee = .three(int: dict["let"] as! Int)
+            ptr.pointee = .three(int: from["let"] as! Int)
         case "four":
-            ptr.pointee = .four(int: dict["int"] as! Int,
-                                int2: dict["int2"] as! Int)
+            ptr.pointee = .four(int: from["int"] as! Int,
+                                int2: from["int2"] as! Int)
         default:
-            fatalError("Invalid case: \(dict["case"]!)")
+            throw NSError(domain: "ExampleEnum", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey:
+                            "Invalid case in: \(from)"])
         }
     }
 }
@@ -26,7 +28,7 @@ struct ExampleStruct {
     let i = 123
 }
 struct ContainableStruct: TwoWayContainable {
-    var a1 = 0, a2 = 0
+    var a1 = 0, a2 = 1
 }
 class ExampleClass: NSObject {
     let a = [98.0]
@@ -40,6 +42,10 @@ class ExampleClass: NSObject {
     let i = [Int]()
     let j: [Int]? = nil
     let k: ContainableStruct? = nil
+    let l = [[123, 123], [234, 234]]
+    let m = ["a": [123, 123], "b": [234, 234]]
+    let n = ["a": ContainableStruct(), "b": ContainableStruct()]
+    let o = [["a": [123, 123], "b": [234, 234]], ["a": [123, 123], "b": [234, 234]]]
     deinit {
         print("deinit")
     }
@@ -92,7 +98,27 @@ let data = """
     "j": [99, 101],
     "k": {
           "a1": 1111, "a2": 2222
-          }
+          },
+    "m" : {
+        "b" : [
+          111,
+          222
+        ],
+        "a" : [
+          333,
+          444
+        ]
+    },
+    "n" : {
+        "b" : {
+          "a2" : 1,
+          "a1" : 2
+        },
+        "a" : {
+          "a2" : 3,
+          "a1" : 4
+        }
+    },
     }
     """.data(using: .utf8)!
 
@@ -100,7 +126,6 @@ for _ in 0..<10 {
     let i1 = ExampleClass()
     try! TwoWayMirror.decode(object: i1, json: data)
     dump(i1)
-    i1["e", ExampleEnum.self] = .four(int: 99, int2: 99)
     let json = try! TwoWayMirror.encode(object: i1, options: [.prettyPrinted])
     print(String(data: json, encoding: .utf8)!)
     let i2 = ExampleClass()

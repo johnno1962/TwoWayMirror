@@ -26,21 +26,23 @@ class TwoWayMirrorTests: XCTestCase {
         // Use XCTAssert and related functions to verify your tests produce the correct results.
         enum ExampleEnum: TwoWayEnum {
             case one, two(str: String), three(int: Int), four(int: Int, int2: Int)
-
-            static func decode(ptr: UnsafeMutableRawPointer, from dict: [String: Any]) {
-                let ptr = ptr.assumingMemoryBound(to: ExampleEnum.self)
-                switch dict["case"] as! String {
+            
+            static func decode(data: inout TwoWayMirror, from: [String: Any]) throws {
+                let ptr = data.pointer(type: ExampleEnum.self)
+                switch from["case"] as! String {
                 case "one":
                     ptr.pointee = .one
                 case "two":
-                    ptr.pointee = .two(str: dict["let"] as! String)
+                    ptr.pointee = .two(str: from["let"] as! String)
                 case "three":
-                    ptr.pointee = .three(int: dict["let"] as! Int)
+                    ptr.pointee = .three(int: from["let"] as! Int)
                 case "four":
-                    ptr.pointee = .four(int: dict["int"] as! Int,
-                                        int2: dict["int2"] as! Int)
+                    ptr.pointee = .four(int: from["int"] as! Int,
+                                        int2: from["int2"] as! Int)
                 default:
-                    fatalError("Invalid case: \(dict["case"]!)")
+                    throw NSError(domain: "ExampleEnum", code: -1,
+                                  userInfo: [NSLocalizedDescriptionKey:
+                                    "Invalid case in: \(from)"])
                 }
             }
         }
@@ -62,6 +64,12 @@ class TwoWayMirrorTests: XCTestCase {
             let i = [Int]()
             let j: [Int]? = nil
             let k: ContainableStruct? = nil
+            let l = [[123, 123], [234, 234]]
+            let m = ["a": [123, 123], "b": [234, 234]]
+            let n = ["a": ContainableStruct(), "b": ContainableStruct()]
+            let o = [["a": [123, 123], "b": [234, 234]], ["a": [123, 123], "b": [234, 234]]]
+            let p = URL(string: "https://apple.com")
+            let q = "123".data(using: .utf8)!
             deinit {
                 print("deinit")
             }
@@ -118,7 +126,8 @@ class TwoWayMirrorTests: XCTestCase {
             "j": [99, 101],
             "k": {
                   "a1": 1111, "a2": 2222
-                  }
+                  },
+            "p" : "https:\\/\\/apple.com",
             }
             """.data(using: .utf8)!
 
@@ -138,6 +147,7 @@ class TwoWayMirrorTests: XCTestCase {
         // This is an example of a performance test case.
         self.measure {
             // Put the code you want to measure the time of here.
+            self.testExample()
         }
     }
     

@@ -1,8 +1,8 @@
 # TwoWayMirror - bidirectional Swift Mirror
 
-It's a frustrating limitation of Swift reflection using the [Mirror](http://nshipster.com/mirrortype/) type
+It's a frustrating limitation of Swift reflection that the [Mirror](http://nshipster.com/mirrortype/) type
 can be only used in one direction for reading values from Swift data structures. This project leverages
-Swift's existing implementation to remove this limitation by falling back to the original underlying
+Swift's internal implementation to remove this limitation by falling back to the original underlying
 [RefelectionLegacy.swift](https://github.com/apple/swift/blob/master/stdlib/public/core/ReflectionLegacy.swift#L86)
 functionality. Think runtime typed keypaths on steroids.
 
@@ -13,8 +13,7 @@ public func reflect<T>(object: AnyObject, path: String, type: T.Type) -> UnsafeM
 ```
 This will return a typed pointer to any ivar of a class object or it's containing structs, enums, collections
 that can be read or assigned to as if you were using a typed keypath.
-This has been used to produce an alternative implementation of Codable for working with JSON data and
-a subscript is defined on any class derived from NSObject for as a Swift valueForKey: replacement.
+A subscript is defined on any class derived from NSObject for a Swift valueForKey: replacement.
 
 ```Swift
 public protocol SubScriptReflectable: AnyObject {}
@@ -36,20 +35,23 @@ Example usage:
 ```Swift
 enum ExampleEnum: TwoWayEnum {
     case one, two(str: String), three(int: Int), four(int: Int, int2: Int)
-    static func decode(ptr: UnsafeMutableRawPointer, from dict: NSDictionary) {
-        let ptr = ptr.assumingMemoryBound(to: ExampleEnum.self)
-        switch dict["case"] as! String {
+
+    static func decode(data: inout TwoWayMirror, from: [String: Any]) throws {
+        let ptr = data.pointer(type: ExampleEnum.self)
+        switch from["case"] as! String {
         case "one":
             ptr.pointee = .one
         case "two":
-            ptr.pointee = .two(str: dict["two"] as! String)
+            ptr.pointee = .two(str: from["let"] as! String)
         case "three":
-            ptr.pointee = .three(int: dict["three"] as! Int)
+            ptr.pointee = .three(int: from["let"] as! Int)
         case "four":
-            ptr.pointee = .four(int: dict["int"] as! Int,
-                                int2: dict["int2"] as! Int)
+            ptr.pointee = .four(int: from["int"] as! Int,
+                                int2: from["int2"] as! Int)
         default:
-            fatalError("Invalid case: \(dict["case"]!)")
+            throw NSError(domain: "ExampleEnum", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey:
+                            "Invalid case in: \(from)"])
         }
     }
 }
@@ -57,7 +59,7 @@ struct ExampleStruct {
     let i = 123
 }
 struct ContainableStruct: TwoWayContainable {
-    var a1 = 0, a2 = 0
+    var a1 = 0, a2 = 1
 }
 class ExampleClass: NSObject {
     let a = [98.0]
@@ -67,9 +69,14 @@ class ExampleClass: NSObject {
     let e = ExampleEnum.four(int: 1, int2: 9)
     let f = Date()
     let g = ["A", "B"]
-    let h = [ContainableStruct]()
+    let h: [ContainableStruct]? = nil
     let i = [Int]()
-    let j: Int? = nil
+    let j: [Int]? = nil
+    let k: ContainableStruct? = nil
+    let l = [[123, 123], [234, 234]]
+    let m = ["a": [123, 123], "b": [234, 234]]
+    let n = ["a": ContainableStruct(), "b": ContainableStruct()]
+    let o = [["a": [123, 123], "b": [234, 234]], ["a": [123, 123], "b": [234, 234]]]
     deinit {
         print("deinit")
     }
@@ -101,7 +108,7 @@ if true {
 }
 ```
 
-JSON decoding and encoding:
+This has been used to produce an alternative implementation of Codable for working with JSON.
 
 ```Swift
 let data = """
@@ -126,28 +133,52 @@ let data = """
     "j": [99, 101],
     "k": {
           "a1": 1111, "a2": 2222
-          }
+          },
+    "m" : {
+        "b" : [
+          111,
+          222
+        ],
+        "a" : [
+          333,
+          444
+        ]
+    },
+    "n" : {
+        "b" : {
+          "a2" : 1,
+          "a1" : 2
+        },
+        "a" : {
+          "a2" : 3,
+          "a1" : 4
+        }
+    },
     }
     """.data(using: .utf8)!
 
-let i1 = ExampleClass()
-try! TwoWayMirror.decode(object: i1, json: data)
-dump(i1)
-let json = try! TwoWayMirror.encode(object: i1, options: [.prettyPrinted])
-print(String(data: json, encoding: .utf8)!)
-let i2 = ExampleClass()
-try! TwoWayMirror.decode(object: i2, json: json)
-dump(i2)
+for _ in 0..<10 {
+    let i1 = ExampleClass()
+    try! TwoWayMirror.decode(object: i1, json: data)
+    dump(i1)
+    i1["e", ExampleEnum.self] = .four(int: 99, int2: 99)
+    let json = try! TwoWayMirror.encode(object: i1, options: [.prettyPrinted])
+    print(String(data: json, encoding: .utf8)!)
+    let i2 = ExampleClass()
+    try! TwoWayMirror.decode(object: i2, json: json)
+    dump(i2)
+}
 ```
 
 The JSON implementation will decode and encode composed structs and class instances,
 Ints, Doubles and String along with Arrays or Optionals of these and Arrays or Optionals of
-structs or class instances which implement the `TwoWayContainable` protocol. For writing to
-an object using reflection to work the top level object must be an instance of a class otherwise
-a copy is taken when the object is reflected and any changes will be lost.
+structs or class instances which implement the `TwoWayContainable` protocol (which just
+requires they have an init() methhod.) For writing using reflection to work (decoding) the
+top level object must be an instance of a class. Otherwise, a copy is taken when the object
+is reflected and any changes will be lost.
 
-Automatic encoding of enums is possible but for decoding you must opt-in to the TwoWayEnum
+Automatic encoding of enums is possible but for decoding you must opt-in to the `TwoWayEnum`
 protocol and supply an implementation to initialise an enum from a dictionary.
 
-While this approach bends a few rules the approach has proven to be robust and makes very few
+While this approach bends a few rules it has proven to be robust making very few
 assumptions about the Swift reflection implementation.
