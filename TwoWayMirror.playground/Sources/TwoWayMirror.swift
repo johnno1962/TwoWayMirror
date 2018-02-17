@@ -5,7 +5,7 @@
 //  Created by John Holdsworth on 13/02/2018.
 //  Copyright © 2018 John Holdsworth. All rights reserved.
 //
-//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#53 $
+//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#64 $
 //
 
 import Foundation
@@ -102,9 +102,9 @@ public struct TwoWayMirror {
     ///   - any: class instance/struct
     ///   - path: dotted path to ivar of interest
     /// - Returns: list of ivars in memory order
-    public static func reflectKeys(any: Any, path: String = "") -> [String] {
+    public static func reflectKeys(any: Any, path: String? = nil) -> [String] {
         var mirror = _reflect(any)
-        if path != "" {
+        if let path = path {
             for key in path.components(separatedBy: ".") {
                 for index in 0 ..< mirror.count {
                     let (name, submirror) = mirror[index]
@@ -138,6 +138,20 @@ public extension SubScriptReflectable {
 
 extension TwoWayMirror {
 
+    /// Create and decode object from JSON data
+    ///
+    /// - Parameters:
+    ///   - instanceType: Type conforming to TwoWayContainable
+    ///   - json: JSON format instance Data
+    ///   - options: JSON reading options
+    /// - Returns: New initialised instance of instanceType
+    /// - Throws: Any error encountered during encoding
+    public static func decode<T: TwoWayContainable>(_ containableType: T.Type, from json: Data,
+                                 options: JSONSerialization.ReadingOptions = []) throws -> T {
+        let any = try JSONSerialization.jsonObject(with: json, options: options)
+        return try containableType.decodeElement(from: any)
+    }
+
     /// Decode ivar values from JSON onto object
     ///
     /// - Parameters:
@@ -164,17 +178,7 @@ extension TwoWayMirror {
 
     static func decode(mirror: UnsafePointer<_Mirror>, any: Any) throws {
         var data = reflect(mirror: mirror)
-        if data.metadata == [Int].self {
-            data[[Int].self] = try cast(any, to: [Int].self)
-        }
-        else if data.metadata == [Double].self {
-            data[[Double].self] = try (any as? [Int])?.map { Double($0) } ??
-                                                cast(any, to: [Double].self)
-        }
-        else if data.metadata == [String].self {
-            data[[String].self] = try cast(any, to: [String].self)
-        }
-        else if let codableType = data.metadata as? TwoWayCodable.Type {
+        if let codableType = data.metadata as? TwoWayCodable.Type {
             try codableType.twDecode(data: &data, any: any)
         }
         else if let enumType = data.metadata as? TwoWayEnum.Type {
@@ -211,30 +215,9 @@ extension TwoWayMirror {
         return encode(mirror: &mirror)
     }
 
-    static func encode(mirror: UnsafePointer<_Mirror>) -> NSObject {
+    static func encode(mirror: UnsafePointer<_Mirror>) -> Any {
         let data = reflect(mirror: mirror)
-        if data.metadata == [Int].self {
-            let array = NSMutableArray()
-            for value in data[[Int].self] {
-                array.add(NSNumber(value: value))
-            }
-            return array
-        }
-        else if data.metadata == [Double].self {
-            let array = NSMutableArray()
-            for value in data[[Double].self] {
-                array.add(NSNumber(value: value))
-            }
-            return array
-        }
-        else if data.metadata == [String].self {
-            let array = NSMutableArray()
-            for value in data[[String].self] {
-                array.add(NSString(string: value))
-            }
-            return array
-        }
-        else if let codableType = data.metadata as? TwoWayCodable.Type {
+        if let codableType = data.metadata as? TwoWayCodable.Type {
             return codableType.twEncode(data: data)
         }
         else if data.metadata is TwoWayEnum.Type {
@@ -289,36 +272,29 @@ extension TwoWayMirror {
 /// Conform to be codable
 public protocol TwoWayCodable {
     static func twDecode(data: inout TwoWayMirror, any: Any) throws
-    static func twEncode(data: TwoWayMirror) -> NSObject
+    static func twEncode(data: TwoWayMirror) -> Any
 }
 
-extension String: TwoWayCodable {
+public protocol TwoWayCastable {}
+extension TwoWayCastable {
     public static func twDecode(data: inout TwoWayMirror, any: Any) throws {
-        data[String.self] = try TwoWayMirror.cast(any, to: String.self)
+        #if os(Linux)
+        if Self.self == Double.self {
+            data[Double.self] = try (any as? Int).flatMap { Double($0) } ??
+                                    TwoWayMirror.cast(any, to: Double.self)
+            return
+        }
+        #endif
+        data[Self.self] = try TwoWayMirror.cast(any, to: Self.self)
     }
-    public static func twEncode(data: TwoWayMirror) -> NSObject {
-        return NSString(string: data[String.self])
-    }
-}
-
-extension Double: TwoWayCodable {
-    public static func twDecode(data: inout TwoWayMirror, any: Any) throws {
-        data[Double.self] = try (any as? Int).flatMap { Double($0) } ??
-                                TwoWayMirror.cast(any, to: Double.self)
-    }
-    public static func twEncode(data: TwoWayMirror) -> NSObject {
-        return NSNumber(value: data[Double.self])
+    public static func twEncode(data: TwoWayMirror) -> Any {
+        return data[Self.self]
     }
 }
 
-extension Int: TwoWayCodable {
-    public static func twDecode(data: inout TwoWayMirror, any: Any) throws {
-        data[Int.self] = try TwoWayMirror.cast(any, to: Int.self)
-    }
-    public static func twEncode(data: TwoWayMirror) -> NSObject {
-        return NSNumber(value: data[Int.self])
-    }
-}
+extension Int: TwoWayCodable, TwoWayCastable {}
+extension Double: TwoWayCodable, TwoWayCastable {}
+extension String: TwoWayCodable, TwoWayCastable {}
 
 extension Date: TwoWayCodable {
     public static func twDecode(data: inout TwoWayMirror, any: Any) throws {
@@ -330,7 +306,7 @@ extension Date: TwoWayCodable {
         }
         data[Date.self] = date
     }
-    public static func twEncode(data: TwoWayMirror) -> NSObject {
+    public static func twEncode(data: TwoWayMirror) -> Any {
         return NSString(string: TwoWayMirror.dateFormatter.string(from: data[Date.self]))
     }
 }
@@ -345,7 +321,7 @@ extension Data: TwoWayCodable {
         }
         data[Data.self] = base64
     }
-    public static func twEncode(data: TwoWayMirror) -> NSObject {
+    public static func twEncode(data: TwoWayMirror) -> Any {
         return NSString(string: data[Data.self].base64EncodedString())
     }
 }
@@ -360,7 +336,7 @@ extension URL: TwoWayCodable {
         }
         data[URL.self] = url
     }
-    public static func twEncode(data: TwoWayMirror) -> NSObject {
+    public static func twEncode(data: TwoWayMirror) -> Any {
         return NSString(string: data[URL.self].absoluteString)
     }
 }
@@ -376,7 +352,7 @@ extension Array: TwoWayCodable {
             try TwoWayMirror.cast(any, to: [Any].self)
                 .map { try containableType.decodeElement(from: $0) as! Element }
     }
-    public static func twEncode(data: TwoWayMirror) -> NSObject {
+    public static func twEncode(data: TwoWayMirror) -> Any {
         let array = NSMutableArray()
         for value in data[[Element].self] {
             var mirror = _reflect(value)
@@ -399,7 +375,7 @@ extension Dictionary: TwoWayCodable {
             dictPtr.pointee[key] = try containableType.decodeElement(from: value) as? Value
         }
     }
-    public static func twEncode(data: TwoWayMirror) -> NSObject {
+    public static func twEncode(data: TwoWayMirror) -> Any {
         let dict = NSMutableDictionary()
         for (key, value) in data[[Key: Value].self] {
             var mirror = _reflect(value)
@@ -412,12 +388,13 @@ extension Dictionary: TwoWayCodable {
     }
 }
 
-private protocol IsOptional {}
-
-extension Optional: TwoWayCodable, IsOptional {
+extension Optional: TwoWayCodable {
     public static func twDecode(data: inout TwoWayMirror, any: Any) throws {
         let optionalPtr = data.pointer(type: Optional<Wrapped>.self)
-        if !(any is NSNull) {
+        if any is NSNull {
+            optionalPtr.pointee = nil
+        }
+        else {
             guard let subtype = Wrapped.self as? TwoWayContainable.Type else {
                 throw NSError(domain: "TwoWayMirror", code: -1,
                               userInfo: [NSLocalizedDescriptionKey:
@@ -426,11 +403,8 @@ extension Optional: TwoWayCodable, IsOptional {
             let instance = try subtype.decodeElement(from: any)
             optionalPtr.pointee = .some(try TwoWayMirror.cast(instance, to: Wrapped.self))
         }
-        else {
-            optionalPtr.pointee = nil
-        }
     }
-    public static func twEncode(data: TwoWayMirror) -> NSObject {
+    public static func twEncode(data: TwoWayMirror) -> Any {
         guard let some = data[Optional<Wrapped>.self] else {
             return NSNull()
         }
@@ -441,7 +415,7 @@ extension Optional: TwoWayCodable, IsOptional {
 
 // MARK: Supporting protocols
 
-/// conformance for decoding/encoding enums
+/// conformance for decoding enums
 public protocol TwoWayEnum {
     static func decode(data: inout TwoWayMirror, from dict: [String: Any]) throws
 }
@@ -460,7 +434,7 @@ extension Date: TwoWayContainable {}
 extension Data: TwoWayContainable {}
 extension URL: TwoWayContainable {
     public init() {
-        self.init(string: "http://tmp.org")!
+        self.init(string: "http://void.org")!
     }
 }
 

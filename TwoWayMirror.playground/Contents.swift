@@ -30,7 +30,7 @@ struct ExampleStruct {
 struct ContainableStruct: TwoWayContainable {
     var a1 = 0, a2 = 1
 }
-class ExampleClass: NSObject {
+final class ExampleClass: NSObject, TwoWayContainable {
     let a = [98.0]
     let b = 199.0
     let c = "Hello"
@@ -122,13 +122,14 @@ let data = """
     }
     """.data(using: .utf8)!
 
+let start = Date.timeIntervalSinceReferenceDate
 for _ in 0..<10 {
     let i1 = ExampleClass()
     try! TwoWayMirror.decode(object: i1, json: data)
     dump(i1)
     let json = try! TwoWayMirror.encode(object: i1, options: [.prettyPrinted])
     print(String(data: json, encoding: .utf8)!)
-    let i2 = ExampleClass()
-    try! TwoWayMirror.decode(object: i2, json: json)
+    let i2 = try! TwoWayMirror.decode(ExampleClass.self, from: json)
     dump(i2)
 }
+print(Date.timeIntervalSinceReferenceDate-start)
