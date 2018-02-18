@@ -5,7 +5,7 @@ import Foundation
 enum ExampleEnum: TwoWayEnum {
     case one, two(str: String), three(int: Int), four(int: Int, int2: Int)
 
-    static func decode(data: inout TwoWayMirror, from: [String: Any]) throws {
+    static func twDecode(data: inout TwoWayMirror, from: [String: Any]) throws {
         let ptr = data.pointer(type: ExampleEnum.self)
         switch from["case"] as! String {
         case "one":
@@ -74,6 +74,20 @@ if true {
 
     instance["f", Date.self] = Date()
     print(instance["f", Date.self])
+
+    let data = """
+    [
+      {
+      "a1": 11, "a2": 22
+      },
+      {
+      "a1": 111, "a2": 222
+      }
+    ]
+    """.data(using: .utf8)!
+
+    let array = try! TwoWayMirror.decode([ContainableStruct].self, from: data)
+    dump(array)
 }
 
 let data = """

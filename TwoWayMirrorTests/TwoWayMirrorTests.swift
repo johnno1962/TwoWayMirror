@@ -27,7 +27,7 @@ class TwoWayMirrorTests: XCTestCase {
         enum ExampleEnum: TwoWayEnum {
             case one, two(str: String), three(int: Int), four(int: Int, int2: Int)
             
-            static func decode(data: inout TwoWayMirror, from: [String: Any]) throws {
+            static func twDecode(data: inout TwoWayMirror, from: [String: Any]) throws {
                 let ptr = data.pointer(type: ExampleEnum.self)
                 switch from["case"] as! String {
                 case "one":
