@@ -1,5 +1,7 @@
 # TwoWayMirror - bidirectional Swift Mirror
 
+*** [Recent changes to Swift master](https://github.com/apple/swift/pull/14678) indicate this is unlikely to work after Swift 5 ***
+
 It's a frustrating limitation of Swift reflection that the [Mirror](http://nshipster.com/mirrortype/) type
 can be only used in one direction for reading values from Swift data structures. This project leverages
 Swift's internal implementation to remove this limitation by falling back to the original underlying
