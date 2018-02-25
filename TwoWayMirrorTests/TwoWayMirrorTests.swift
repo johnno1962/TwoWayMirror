@@ -24,11 +24,25 @@ class TwoWayMirrorTests: XCTestCase {
     func testExample() {
         // This is an example of a functional test case.
         // Use XCTAssert and related functions to verify your tests produce the correct results.
-        enum ExampleEnum: TwoWayEnum {
+        enum ExampleEnum: TwoWayCodable {
             case one, two(str: String), three(int: Int), four(int: Int, int2: Int)
-            
-            static func twDecode(data: inout TwoWayMirror, from: [String: Any]) throws {
-                let ptr = data.pointer(type: ExampleEnum.self)
+
+            static func twEncode(mirror: TwoWayMirror) -> Any {
+                switch mirror.pointer(type: ExampleEnum.self).pointee {
+                case .one:
+                    return ["case": "one"]
+                case .two(let str):
+                    return ["case": "two", "let": str]
+                case .three(let int):
+                    return ["case": "three", "let": int]
+                case .four(let int, let int2):
+                    return ["case": "four", "int": int, "int2": int2]
+                }
+            }
+
+            static func twDecode(mirror: TwoWayMirror, any: Any) throws {
+                let ptr = mirror.pointer(type: ExampleEnum.self)
+                let from = any as! [String: Any]
                 switch from["case"] as! String {
                 case "one":
                     ptr.pointee = .one
@@ -46,21 +60,21 @@ class TwoWayMirrorTests: XCTestCase {
                 }
             }
         }
-        struct ExampleStruct {
-            let i = 123
+        struct ExampleStruct<T> {
+            let i: T
         }
         struct ContainableStruct: TwoWayContainable {
-            var a1 = 0, a2 = 0
+            var a1 = 0, a2 = 1
         }
-        class ExampleClass: NSObject {
+        final class ExampleClass: NSObject, TwoWayContainable {
             let a = [98.0]
             let b = 199.0
             let c = "Hello"
-            let d = ExampleStruct()
+            let d = ExampleStruct(i: 123)
             let e = ExampleEnum.four(int: 1, int2: 9)
             let f = Date()
             let g = ["A", "B"]
-            let h = [ContainableStruct]()
+            let h: [ContainableStruct]? = nil
             let i = [Int]()
             let j: [Int]? = nil
             let k: ContainableStruct? = nil
@@ -76,12 +90,12 @@ class TwoWayMirrorTests: XCTestCase {
         }
 
         if true {
-            let instance = ExampleClass()
+            var instance = ExampleClass()
 
-            print(TwoWayMirror.reflectKeys(any: instance))
-            print(TwoWayMirror.reflectKeys(any: instance, path: "d"))
+            print(TwoWayMirror.reflectKeys(object: &instance))
+            print(TwoWayMirror.reflectKeys(object: &instance, path: "d"))
 
-            TwoWayMirror.reflect(object: instance, path: "a", type: [Double].self).pointee += [11.0]
+            TwoWayMirror.reflect(object: &instance, path: "a", type: [Double].self).pointee += [11.0]
             print(instance["a", [Double].self])
 
             instance["b", Double.self] += 100.0
@@ -93,15 +107,25 @@ class TwoWayMirrorTests: XCTestCase {
             instance["d.i", Int.self] += 345
             print(instance.d.i)
 
-            print(TwoWayMirror.reflectKeys(any: instance, path: "e"))
-            instance["e", ExampleEnum.self] = .two(str: "FFF")
+            instance["e", ExampleEnum.self] = .two(str: "TWO")
             print(instance.e)
-            print(TwoWayMirror.reflectKeys(any: instance, path: "e"))
-            print(TwoWayMirror.reflectKeys(any: instance, path: "e.two"))
-            print(MemoryLayout<ExampleEnum>.size)
 
             instance["f", Date.self] = Date()
             print(instance["f", Date.self])
+
+            let data = """
+                [
+                  {
+                  "a1": 11, "a2": 22
+                  },
+                  {
+                  "a1": 111, "a2": 222
+                  }
+                ]
+                """.data(using: .utf8)!
+
+            let array = try! TwoWayMirror.decode([ContainableStruct].self, from: data)
+            dump(array)
         }
 
         let data = """
@@ -127,20 +151,40 @@ class TwoWayMirrorTests: XCTestCase {
             "k": {
                   "a1": 1111, "a2": 2222
                   },
-            "p" : "https:\\/\\/apple.com",
+            "m" : {
+                "b" : [
+                  111,
+                  222
+                ],
+                "a" : [
+                  333,
+                  444
+                ]
+            },
+            "n" : {
+                "b" : {
+                  "a2" : 1,
+                  "a1" : 2
+                },
+                "a" : {
+                  "a2" : 3,
+                  "a1" : 4
+                }
+            },
             }
             """.data(using: .utf8)!
 
+        let start = Date.timeIntervalSinceReferenceDate
         for _ in 0..<10 {
-            let i1 = ExampleClass()
-            try! TwoWayMirror.decode(object: i1, json: data)
+            var i1 = ExampleClass()
+            try! TwoWayMirror.decode(object: &i1, json: data)
             dump(i1)
-            let json = try! TwoWayMirror.encode(object: i1, options: [.prettyPrinted])
+            let json = try! TwoWayMirror.encode(object: &i1, options: [.prettyPrinted])
             print(String(data: json, encoding: .utf8)!)
-            let i2 = ExampleClass()
-            try! TwoWayMirror.decode(object: i2, json: json)
+            let i2 = try! TwoWayMirror.decode(ExampleClass.self, from: json)
             dump(i2)
         }
+        print(Date.timeIntervalSinceReferenceDate-start)
     }
     
     func testPerformanceExample() {
