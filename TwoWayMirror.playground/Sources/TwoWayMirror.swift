@@ -5,7 +5,7 @@
 //  Created by John Holdsworth on 13/02/2018.
 //  Copyright © 2018 John Holdsworth. All rights reserved.
 //
-//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#78 $
+//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#105 $
 //
 
 import Foundation
@@ -94,8 +94,16 @@ public class TwoWayMirror {
         typealias MaybeRelativePointer = intptr_t
 
         struct SwiftNominalTypeDescriptor {
+
+            /// Swift 5
+            var Flags: UInt32, Parent: UInt32
+
             /// The mangled name of the nominal type.
             var Name: LocalRelativePointer
+
+            /// Swift 5
+            var Accessor: LocalRelativePointer
+
             /// The number of stored properties in the class, not including its
             /// superclasses. If there is a field offset vector, this is its length.
             var NumFields: UInt32
@@ -189,21 +197,11 @@ public class TwoWayMirror {
             return Int(self.description?.pointee.NumFields ?? 0)
         }()
 
-        public lazy var names: [String] = {
-            var names = [String]()
-            if self.description != nil {
-                var ptr = self.localRelativePointer(field: &self.description!.pointee.FieldNames, type: Int8.self)
-                for i in 0 ..< self.count {
-                    names.append(String(utf8String: ptr) ?? "UTF?")
-                    ptr = ptr.advanced(by: Int(strlen(ptr) + 1))
-                }
-            }
-            return names
-        }()
+        public var names = [String]()
 
         lazy var description: UnsafeMutablePointer<SwiftNominalTypeDescriptor>?  = {
             let classData = unsafeBitCast(self.type, to: UnsafeMutablePointer<ClassMetadataSwift>.self)
-            if classData.pointee.MetaClass == 1 { //&& !(self.type is TwoWayCodable.Type) {
+            if classData.pointee.MetaClass == 1 {
                 var structData = unsafeBitCast(self.type, to: UnsafeMutablePointer<SwiftStructMetadata>.self)
                 return self.getDescription(ptr: &structData.pointee.Description)
             }
@@ -233,15 +231,22 @@ public class TwoWayMirror {
 
         init(type: Any.Type) {
             self.type = type
-            if description != nil && description?.pointee.GetFieldTypes != 0 {
-                typealias typeFunction = @convention(c) (_ type: UnsafeRawPointer) -> UnsafePointer<UnsafeMutableRawPointer>
-                let getFieldTypes = localRelativePointer(field: &description!.pointee.GetFieldTypes, type: Int8.self)
-                let typesFunction = unsafeBitCast(getFieldTypes, to: typeFunction.self)
-                let typesReturn = typesFunction(unsafeBitCast(self.type, to: UnsafeRawPointer.self))
-                let typesPointer = typesReturn.withMemoryRebound(to: Any.Type.self, capacity: count) { $0 }
-                for i in 0 ..< count {
-                    ivarTypes.append(typesPointer[i])
+            if description != nil {
+                struct StringRef {
+                    let data: UnsafePointer<CChar>
+                    let count: Int
                 }
+                let callback = StdFunction({
+                    (a1, a2, a3, a4, a5) in
+                    let name = a1.assumingMemoryBound(to: StringRef.self).pointee
+                    let fieldInfo = a2.assumingMemoryBound(to: uintptr_t.self).pointee
+                    self.names.append(String(cString: name.data))
+                    self.ivarTypes.append(unsafeBitCast(fieldInfo & ~0x3, to: Any.Type.self))
+                })
+                for field in 0 ..< description!.pointee.NumFields {
+                    swift_getFieldAt(base: self.type, index: field, callback: callback)
+                }
+                callback.destruct()
             }
             let typeWords = unsafeBitCast(self.type, to: UnsafePointer<StoredPointer>.self)
             ivarOffsets = typeWords.advanced(by: Int(description?.pointee.FieldOffsetVectorOffset ?? 0))
@@ -524,3 +529,89 @@ extension Optional: TwoWayCodable {
         return TwoWayMirror.encode(mirror: TwoWayMirror(object: &some))
     }
 }
+
+// MARK: Provide C++ std::function callback from Swift
+
+// No promises mind. Highly dependent the STL implementation.
+
+let StdNull: UnsafeRawPointer? = nil
+
+public struct StdFunction {
+
+    #if os(Linux)
+    typealias _Manager_type = @convention(c) () -> Void
+
+    let __base: UnsafePointer<StdBase>
+    let __blank = StdNull
+    let _M_manager: NotUsed = { print("_M_manager") }
+    let _M_invoker: Operator = {
+        (_M_functor, a1, a2, a3, a4, a5) -> Return in
+        let __base = _M_functor.assumingMemoryBound(to: StdFunction.self).pointee.__base
+        return __base.pointee.__vtable.pointee.g(__base, a1, a2, a3, a4, a5)
+    }
+    let slot5 = StdNull
+    let slot6 = StdNull
+    #else
+    let slot1 = StdNull
+    let slot2 = StdNull
+    let slot3 = StdNull
+    let slot4 = StdNull
+    let __base: UnsafePointer<StdBase>
+    let slot6 = StdNull
+    #endif
+
+    static var created = [UnsafePointer<StdBase>:Unmanaged<StdRetainer>]()
+
+    public init(_ closure: @escaping Callback) {
+        let retainer = StdRetainer(closure: closure)
+        __base = withUnsafePointer(to: &retainer.__base) { $0 }
+        StdFunction.created[__base] = Unmanaged.passRetained(retainer)
+    }
+
+    public func destruct() {
+        StdFunction.created.removeValue(forKey: __base)?.release()
+    }
+
+    public typealias Return = Void
+    public typealias Callback = (_ a1: UnsafeRawPointer, _ a2: UnsafeRawPointer,
+        _ a3: UnsafeRawPointer, _ a4: UnsafeRawPointer, _ a5: UnsafeRawPointer) -> Return
+    typealias Operator = @convention(c) (_ this: UnsafeRawPointer, _ a1: UnsafeRawPointer, _ a2: UnsafeRawPointer,
+        _ a3: UnsafeRawPointer, _ a4: UnsafeRawPointer, _ a5: UnsafeRawPointer) -> Return
+    typealias NotUsed = @convention(c) () -> Void
+
+    class StdRetainer {
+
+        var __base: StdBase
+
+        init(closure: @escaping Callback) {
+            __base = StdBase(__vtable: &StdBase.vtable, closure: closure)
+        }
+    }
+
+    struct StdBase {
+
+        struct StdVtable {
+            let a: NotUsed = { print("slot a called") }
+            let b: NotUsed = { print("slot b called") }
+            let c: NotUsed = { print("slot c called") }
+            let d: NotUsed = { print("slot d called") }
+            let e: NotUsed = { print("slot e called") }
+            let f: NotUsed = { print("slot f called") }
+            let g: Operator = {
+                (this, a1, a2, a3, a4, a5) -> Return in
+                return this.assumingMemoryBound(to: StdBase.self)
+                    .pointee.closure(a1, a2, a3, a4, a5)
+            }
+            let h: NotUsed = { print("slot h called") }
+            let i: NotUsed = { print("slot i called") }
+        }
+
+        static var vtable = StdVtable()
+
+        let __vtable: UnsafePointer<StdVtable>
+        let closure: Callback
+    }
+}
+
+@_silgen_name("swift_getFieldAt")
+func swift_getFieldAt(base: Any.Type, index: UInt32, callback: StdFunction)
