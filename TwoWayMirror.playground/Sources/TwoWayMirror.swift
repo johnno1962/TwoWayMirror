@@ -5,74 +5,76 @@
 //  Created by John Holdsworth on 13/02/2018.
 //  Copyright © 2018 John Holdsworth. All rights reserved.
 //
-//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#105 $
+//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#113 $
 //
 
 import Foundation
 
-public class TwoWayMirror {
+public struct TwoWayMirror {
 
     public static func reflect<V,T>(object: UnsafeMutablePointer<V>, path: String? = nil, type: T.Type) -> UnsafeMutablePointer<T> {
-        var mirror = TwoWayMirror(object: object)
-        if let path = path {
-            for key in path.components(separatedBy: ".") {
-                if let index = (0 ..< mirror.count).first(where: { mirror.names[$0] == key }) {
-                    mirror = mirror[index].mirror
-                    continue
-                }
-                fatalError("Unable to find path component \(key)")
-            }
-        }
-        return mirror.pointer(type: T.self)
+        return TwoWayMirror(object: object, path: path).pointer(type: T.self)
+    }
+
+    public static func reflectAny<V>(object: UnsafeMutablePointer<V>, path: String? = nil) -> Any {
+        return encode(mirror: TwoWayMirror(object: object, path: path))
     }
 
     public static func reflectKeys<V>(object: UnsafeMutablePointer<V>, path: String? = nil) -> [String] {
-        var mirror = TwoWayMirror(object: object)
-        if let path = path {
-            for key in path.components(separatedBy: ".") {
-                if let index = (0 ..< mirror.count).first(where: { mirror.names[$0] == key }) {
-                    mirror = mirror[index].mirror
+        return TwoWayMirror(object: object, path: path).names
+    }
+
+    public var ptr: UnsafeMutablePointer<Int8>
+    var typeInfo: TwoWayTypeInfo
+
+    public var type: Any.Type { return typeInfo.type }
+    public var count: Int { return typeInfo.count }
+    public var names: [String] { return typeInfo.names }
+    public var types: [Any.Type] { return typeInfo.fieldTypes }
+
+    static var infoCache = [ObjectIdentifier: TwoWayTypeInfo]()
+
+    public init<V>(object: UnsafeMutablePointer<V>, path: String? = nil, type: Any.Type? = nil) {
+        self.ptr = object.withMemoryRebound(to: Int8.self, capacity: 1) { $0 }
+        let type = type ?? V.self
+
+        typeInfo = TwoWayMirror.infoCache[ObjectIdentifier(type)] ?? {
+            let typeInfo = TwoWayTypeInfo(type: type)
+            TwoWayMirror.infoCache[ObjectIdentifier(type)] = typeInfo
+            return typeInfo
+        }()
+
+        if typeInfo.description != nil && typeInfo.fieldOffsets[0] != 0 {
+            ptr = ptr.withMemoryRebound(to: UnsafeMutablePointer<Int8>?.self, capacity: 1) { $0.pointee! }
+        }
+
+        if let path = path?.components(separatedBy: ".") {
+            for key in path {
+                if let mirror = self[key] {
+                    self = mirror
                     continue
                 }
                 fatalError("Unable to find path component \(key)")
             }
         }
-        return mirror.names
     }
 
-    public var ptr: UnsafeMutablePointer<Int8>
-    let shared: TwoWayShared
-
-    var count: Int { return shared.count }
-//    var type: Any.Type { return shared.type }
-    var names: [String] { return shared.names }
-
-    static var sharedCache = [ObjectIdentifier: TwoWayShared]()
-
-    public init<V>(object: UnsafeMutablePointer<V>, type: Any.Type? = nil) {
-        self.ptr = object.withMemoryRebound(to: Int8.self, capacity: 1) { $0 }
-        let type = type ?? V.self
-
-        shared = TwoWayMirror.sharedCache[ObjectIdentifier(type)] ?? {
-            let shared = TwoWayShared(type: type)
-            TwoWayMirror.sharedCache[ObjectIdentifier(type)] = shared
-            return shared
-        }()
-
-        if shared.description != nil && shared.ivarOffsets[0] != 0 {
-            ptr = ptr.withMemoryRebound(to: UnsafeMutablePointer<Int8>?.self, capacity: 1) { $0.pointee! }
+    public subscript(fieldName: String) -> TwoWayMirror? {
+        if let index = (0 ..< count).first(where: { names[$0] == fieldName }) {
+            return self[index].mirror
         }
+        return nil
     }
 
-    public subscript(ivarNumber: Int) -> (name: String, mirror: TwoWayMirror) {
-        let ivarPointer = ptr.advanced(by: Int(shared.ivarOffsets[ivarNumber]))
-//        print(">>>", self.ptr, ivarPointer, ivarOffsets[0], ivarOffsets[ivarNumber])
-        return (names[ivarNumber], TwoWayMirror(object: ivarPointer, type: shared.ivarTypes[ivarNumber]))
+    public subscript(fieldNumber: Int) -> (name: String, mirror: TwoWayMirror) {
+        let fieldPointer = ptr.advanced(by: Int(typeInfo.fieldOffsets[fieldNumber]))
+//        print(">>>", self.ptr, fieldPointer, fieldOffsets[0], fieldOffsets[fieldNumber])
+        return (names[fieldNumber], TwoWayMirror(object: fieldPointer, type: typeInfo.fieldTypes[fieldNumber]))
     }
 
     public func pointer<T>(type: T.Type) -> UnsafeMutablePointer<T> {
-        if shared.type != type {
-            fatalError("Ivar type '\(shared.type)' not equal to destination type '\(type)'")
+        if typeInfo.type != type {
+            fatalError("Ivar type '\(typeInfo.type)' not equal to destination type '\(type)'")
         }
         return ptr.withMemoryRebound(to: T.self, capacity: 1) { $0 }
     }
@@ -86,7 +88,7 @@ public class TwoWayMirror {
         }
     }
 
-    class TwoWayShared {
+    class TwoWayTypeInfo {
         // extracted from https://github.com/apple/swift/blob/master/include/swift/Runtime/Metadata.h
 
         typealias StoredPointer = intptr_t
@@ -190,8 +192,8 @@ public class TwoWayMirror {
         }
 
         let type: Any.Type
-        var ivarTypes = [Any.Type]()
-        var ivarOffsets: UnsafePointer<StoredPointer>!
+        var fieldTypes = [Any.Type]()
+        var fieldOffsets: UnsafePointer<StoredPointer>!
 
         public lazy var count: Int = {
             return Int(self.description?.pointee.NumFields ?? 0)
@@ -201,7 +203,7 @@ public class TwoWayMirror {
 
         lazy var description: UnsafeMutablePointer<SwiftNominalTypeDescriptor>?  = {
             let classData = unsafeBitCast(self.type, to: UnsafeMutablePointer<ClassMetadataSwift>.self)
-            if classData.pointee.MetaClass == 1 {
+            if classData.pointee.MetaClass == 1 {//|| classData.pointee.MetaClass == 2 {
                 var structData = unsafeBitCast(self.type, to: UnsafeMutablePointer<SwiftStructMetadata>.self)
                 return self.getDescription(ptr: &structData.pointee.Description)
             }
@@ -241,7 +243,7 @@ public class TwoWayMirror {
                     let name = a1.assumingMemoryBound(to: StringRef.self).pointee
                     let fieldInfo = a2.assumingMemoryBound(to: uintptr_t.self).pointee
                     self.names.append(String(cString: name.data))
-                    self.ivarTypes.append(unsafeBitCast(fieldInfo & ~0x3, to: Any.Type.self))
+                    self.fieldTypes.append(unsafeBitCast(fieldInfo & ~0x3, to: Any.Type.self))
                 })
                 for field in 0 ..< description!.pointee.NumFields {
                     swift_getFieldAt(base: self.type, index: field, callback: callback)
@@ -249,7 +251,7 @@ public class TwoWayMirror {
                 callback.destruct()
             }
             let typeWords = unsafeBitCast(self.type, to: UnsafePointer<StoredPointer>.self)
-            ivarOffsets = typeWords.advanced(by: Int(description?.pointee.FieldOffsetVectorOffset ?? 0))
+            fieldOffsets = typeWords.advanced(by: Int(description?.pointee.FieldOffsetVectorOffset ?? 0))
         }
     }
 }
@@ -294,7 +296,7 @@ extension TwoWayMirror {
         return try containableType.decodeElement(from: any)
     }
 
-    /// Decode ivar values from JSON onto object
+    /// Decode field values from JSON onto object
     ///
     /// - Parameters:
     ///   - object: class instance to take values
@@ -307,25 +309,26 @@ extension TwoWayMirror {
                    any: try JSONSerialization.jsonObject(with: json, options: options))
     }
 
-    /// Decode ivar values from foundation class representation
+    /// Decode field values from foundation class representation
     ///
     /// - Parameters:
     ///   - object: class instance to take values
     ///   - any: foundation representation of values
     /// - Throws: type conversion errors
     public static func decode<T>(object: UnsafeMutablePointer<T>, any: Any) throws {
-        try decode(mirror: TwoWayMirror(object: object), any: any)
+        var mirror = TwoWayMirror(object: object)
+        try decode(mirror: &mirror, any: any)
     }
 
-    static func decode(mirror: TwoWayMirror, any: Any) throws {
-        if let codableType = mirror.shared.type as? TwoWayCodable.Type {
-            try codableType.twDecode(mirror: mirror, any: any)
+    static func decode(mirror: inout TwoWayMirror, any: Any) throws {
+        if let codableType = mirror.typeInfo.type as? TwoWayCodable.Type {
+            try codableType.twDecode(mirror: &mirror, any: any)
         }
         else if mirror.count != 0, let dict = any as? [String: Any] {
             for index in 0 ..< mirror.count {
-                let (name, submirror) = mirror[index]
+                var (name, submirror) = mirror[index]
                 if let value = dict[name] {
-                    try decode(mirror: submirror, any: value)
+                    try decode(mirror: &submirror, any: value)
                 }
             }
         }
@@ -353,7 +356,7 @@ extension TwoWayMirror {
     }
 
     static func encode(mirror: TwoWayMirror) -> Any {
-        if let codableType = mirror.shared.type as? TwoWayCodable.Type {
+        if let codableType = mirror.typeInfo.type as? TwoWayCodable.Type {
             return codableType.twEncode(mirror: mirror)
         }
         else {
@@ -386,7 +389,7 @@ extension TwoWayMirror {
 
 /// Conform to be codable
 public protocol TwoWayCodable {
-    static func twDecode(mirror: TwoWayMirror, any: Any) throws
+    static func twDecode(mirror: inout TwoWayMirror, any: Any) throws
     static func twEncode(mirror: TwoWayMirror) -> Any
 }
 
@@ -398,15 +401,15 @@ public protocol TwoWayContainable {
 extension TwoWayContainable {
     static func decodeElement(from: Any) throws -> Self {
         var instance = Self()
-        let mirror = TwoWayMirror(object: &instance, type: Self.self)
-        try TwoWayMirror.decode(mirror: mirror, any: from)
+        var mirror = TwoWayMirror(object: &instance, type: Self.self)
+        try TwoWayMirror.decode(mirror: &mirror, any: from)
         return instance
     }
 }
 
 public protocol TwoWayCastable: TwoWayContainable {}
 extension TwoWayCastable {
-    public static func twDecode(mirror: TwoWayMirror, any: Any) throws {
+    public static func twDecode(mirror: inout TwoWayMirror, any: Any) throws {
         #if os(Linux)
         if Self.self == Double.self {
             mirror[Double.self] = try (any as? Int).flatMap { Double($0) } ??
@@ -426,7 +429,7 @@ extension Double: TwoWayCodable, TwoWayCastable {}
 extension String: TwoWayCodable, TwoWayCastable {}
 
 extension Date: TwoWayCodable, TwoWayContainable {
-    public static func twDecode(mirror: TwoWayMirror, any: Any) throws {
+    public static func twDecode(mirror: inout TwoWayMirror, any: Any) throws {
         let string = try TwoWayMirror.cast(any, to: String.self)
         guard let date = TwoWayMirror.dateFormatter.date(from: string) else {
             throw TWError("unable to parse date: '\(string)'")
@@ -439,7 +442,7 @@ extension Date: TwoWayCodable, TwoWayContainable {
 }
 
 extension Data: TwoWayCodable, TwoWayContainable {
-    public static func twDecode(mirror: TwoWayMirror, any: Any) throws {
+    public static func twDecode(mirror: inout TwoWayMirror, any: Any) throws {
         let string = try TwoWayMirror.cast(any, to: String.self)
         guard let base64 = Data(base64Encoded: string) else {
             throw TWError("unable to decode base64: '\(string)'")
@@ -455,7 +458,7 @@ extension URL: TwoWayCodable, TwoWayContainable {
     public init() {
         self.init(string: "http://void.org")!
     }
-    public static func twDecode(mirror: TwoWayMirror, any: Any) throws {
+    public static func twDecode(mirror: inout TwoWayMirror, any: Any) throws {
         let string = try TwoWayMirror.cast(any, to: String.self)
         guard let url = URL(string: string) else {
             throw TWError("unable to parse url: '\(string)'")
@@ -468,7 +471,7 @@ extension URL: TwoWayCodable, TwoWayContainable {
 }
 
 extension Array: TwoWayCodable, TwoWayContainable {
-    public static func twDecode(mirror: TwoWayMirror, any: Any) throws {
+    public static func twDecode(mirror: inout TwoWayMirror, any: Any) throws {
         guard let containableType = Element.self as? TwoWayContainable.Type else {
             throw TWError("unable to decode array containing \(Element.self)")
         }
@@ -487,7 +490,7 @@ extension Array: TwoWayCodable, TwoWayContainable {
 }
 
 extension Dictionary: TwoWayCodable, TwoWayContainable {
-    public static func twDecode(mirror: TwoWayMirror, any: Any) throws {
+    public static func twDecode(mirror: inout TwoWayMirror, any: Any) throws {
         guard let containableType = Value.self as? TwoWayContainable.Type else {
             throw TWError("unable to decode dictionary containing \(Value.self)")
         }
@@ -509,7 +512,7 @@ extension Dictionary: TwoWayCodable, TwoWayContainable {
 }
 
 extension Optional: TwoWayCodable {
-    public static func twDecode(mirror: TwoWayMirror, any: Any) throws {
+    public static func twDecode(mirror: inout TwoWayMirror, any: Any) throws {
         let optionalPtr = mirror.pointer(type: Optional<Wrapped>.self)
         if any is NSNull {
             optionalPtr.pointee = nil
@@ -544,7 +547,7 @@ public struct StdFunction {
     let __base: UnsafePointer<StdBase>
     let __blank = StdNull
     let _M_manager: NotUsed = { print("_M_manager") }
-    let _M_invoker: Operator = {
+    let _M_invoker: OperatorInvoke = {
         (_M_functor, a1, a2, a3, a4, a5) -> Return in
         let __base = _M_functor.assumingMemoryBound(to: StdFunction.self).pointee.__base
         return __base.pointee.__vtable.pointee.g(__base, a1, a2, a3, a4, a5)
@@ -560,22 +563,22 @@ public struct StdFunction {
     let slot6 = StdNull
     #endif
 
-    static var created = [UnsafePointer<StdBase>:Unmanaged<StdRetainer>]()
+    static var created = [UnsafePointer<StdBase>:StdRetainer]()
 
     public init(_ closure: @escaping Callback) {
         let retainer = StdRetainer(closure: closure)
         __base = withUnsafePointer(to: &retainer.__base) { $0 }
-        StdFunction.created[__base] = Unmanaged.passRetained(retainer)
+        StdFunction.created[__base] = retainer
     }
 
     public func destruct() {
-        StdFunction.created.removeValue(forKey: __base)?.release()
+        StdFunction.created.removeValue(forKey: __base)
     }
 
     public typealias Return = Void
     public typealias Callback = (_ a1: UnsafeRawPointer, _ a2: UnsafeRawPointer,
         _ a3: UnsafeRawPointer, _ a4: UnsafeRawPointer, _ a5: UnsafeRawPointer) -> Return
-    typealias Operator = @convention(c) (_ this: UnsafeRawPointer, _ a1: UnsafeRawPointer, _ a2: UnsafeRawPointer,
+    typealias OperatorInvoke = @convention(c) (_ this: UnsafeRawPointer, _ a1: UnsafeRawPointer, _ a2: UnsafeRawPointer,
         _ a3: UnsafeRawPointer, _ a4: UnsafeRawPointer, _ a5: UnsafeRawPointer) -> Return
     typealias NotUsed = @convention(c) () -> Void
 
@@ -597,7 +600,7 @@ public struct StdFunction {
             let d: NotUsed = { print("slot d called") }
             let e: NotUsed = { print("slot e called") }
             let f: NotUsed = { print("slot f called") }
-            let g: Operator = {
+            let g: OperatorInvoke = {
                 (this, a1, a2, a3, a4, a5) -> Return in
                 return this.assumingMemoryBound(to: StdBase.self)
                     .pointee.closure(a1, a2, a3, a4, a5)

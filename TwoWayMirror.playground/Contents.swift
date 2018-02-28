@@ -18,7 +18,7 @@ enum ExampleEnum: TwoWayCodable {
         }
     }
 
-    static func twDecode(mirror: TwoWayMirror, any: Any) throws {
+    static func twDecode(mirror: inout TwoWayMirror, any: Any) throws {
         let ptr = mirror.pointer(type: ExampleEnum.self)
         let from = any as! [String: Any]
         switch from["case"] as! String {
