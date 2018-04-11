@@ -60,8 +60,11 @@ class TwoWayMirrorTests: XCTestCase {
                 }
             }
         }
-        struct ExampleStruct<T> {
+        class ExampleStruct<T> {
             let i: T
+            init(i: T) {
+                self.i = i
+            }
         }
         struct ContainableStruct: TwoWayContainable {
             var a1 = 0, a2 = 1
@@ -70,7 +73,7 @@ class TwoWayMirrorTests: XCTestCase {
             let a = [98.0]
             let b = 199.0
             let c = "Hello"
-            let d = ExampleStruct(i: 123)
+            let d = ExampleStruct(i: ExampleStruct(i: 123))
             let e = ExampleEnum.four(int: 1, int2: 9)
             let f = Date()
             let g = ["A", "B"]
@@ -104,8 +107,9 @@ class TwoWayMirrorTests: XCTestCase {
             instance["c", String.self] += " String"
             print(instance.c)
 
-            instance["d.i", Int.self] += 345
-            print(instance.d.i)
+            instance["d.i.i", Int.self] += 345
+            print(instance.d.i.i)
+            print(TwoWayMirror.reflectAny(object: &instance, path: "d.i.i"))
 
             instance["e", ExampleEnum.self] = .two(str: "TWO")
             print(instance.e)
