@@ -5,12 +5,17 @@
 //  Created by John Holdsworth on 13/02/2018.
 //  Copyright © 2018 John Holdsworth. All rights reserved.
 //
-//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#113 $
+//  $Id: //depot/TwoWayMirror/TwoWayMirror.playground/Sources/TwoWayMirror.swift#119 $
 //
 
 import Foundation
 
-public struct TwoWayMirror {
+public protocol NoLongerNominalDescriptor {
+    var NumFields: UInt32 { get }
+    var FieldOffsetVectorOffset: UInt32 { get }
+}
+
+public struct TwoWayMirror: Collection {
 
     public static func reflect<V,T>(object: UnsafeMutablePointer<V>, path: String? = nil, type: T.Type) -> UnsafeMutablePointer<T> {
         return TwoWayMirror(object: object, path: path).pointer(type: T.self)
@@ -24,28 +29,35 @@ public struct TwoWayMirror {
         return TwoWayMirror(object: object, path: path).names
     }
 
-    public var ptr: UnsafeMutablePointer<Int8>
+    public var ptr: UnsafeMutableRawPointer
     var typeInfo: TwoWayTypeInfo
 
     public var type: Any.Type { return typeInfo.type }
     public var count: Int { return typeInfo.count }
+
+    public var startIndex: Int { return 0 }
+    public var endIndex: Int { return count }
+    public func index(after i: Int) -> Int {
+        return i + 1
+    }
+
     public var names: [String] { return typeInfo.names }
     public var types: [Any.Type] { return typeInfo.fieldTypes }
 
     static var infoCache = [ObjectIdentifier: TwoWayTypeInfo]()
 
     public init<V>(object: UnsafeMutablePointer<V>, path: String? = nil, type: Any.Type? = nil) {
-        self.ptr = object.withMemoryRebound(to: Int8.self, capacity: 1) { $0 }
+        self.ptr = UnsafeMutableRawPointer(object)
         let type = type ?? V.self
 
         typeInfo = TwoWayMirror.infoCache[ObjectIdentifier(type)] ?? {
             let typeInfo = TwoWayTypeInfo(type: type)
             TwoWayMirror.infoCache[ObjectIdentifier(type)] = typeInfo
             return typeInfo
-        }()
+            }()
 
         if typeInfo.description != nil && typeInfo.fieldOffsets[0] != 0 {
-            ptr = ptr.withMemoryRebound(to: UnsafeMutablePointer<Int8>?.self, capacity: 1) { $0.pointee! }
+            ptr = ptr.assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee!
         }
 
         if let path = path?.components(separatedBy: ".") {
@@ -60,23 +72,25 @@ public struct TwoWayMirror {
     }
 
     public subscript(fieldName: String) -> TwoWayMirror? {
-        if let index = (0 ..< count).first(where: { names[$0] == fieldName }) {
+        if let index = names.firstIndex(where: { $0 == fieldName }) {
             return self[index].mirror
         }
         return nil
     }
 
     public subscript(fieldNumber: Int) -> (name: String, mirror: TwoWayMirror) {
-        let fieldPointer = ptr.advanced(by: Int(typeInfo.fieldOffsets[fieldNumber]))
-//        print(">>>", self.ptr, fieldPointer, fieldOffsets[0], fieldOffsets[fieldNumber])
-        return (names[fieldNumber], TwoWayMirror(object: fieldPointer, type: typeInfo.fieldTypes[fieldNumber]))
+        let fieldPointer = ptr.assumingMemoryBound(to: Int8.self)
+            .advanced(by: Int(typeInfo.fieldOffsets[fieldNumber]))
+//        print(">>>", self.ptr, fieldPointer, typeInfo.fieldOffsets[0], typeInfo.fieldOffsets[fieldNumber])
+        return (names[fieldNumber],
+                TwoWayMirror(object: fieldPointer, type: typeInfo.fieldTypes[fieldNumber]))
     }
 
     public func pointer<T>(type: T.Type) -> UnsafeMutablePointer<T> {
         if typeInfo.type != type {
             fatalError("Ivar type '\(typeInfo.type)' not equal to destination type '\(type)'")
         }
-        return ptr.withMemoryRebound(to: T.self, capacity: 1) { $0 }
+        return ptr.assumingMemoryBound(to: T.self)
     }
 
     public subscript<T>(type: T.Type) -> T {
@@ -94,44 +108,13 @@ public struct TwoWayMirror {
         typealias StoredPointer = intptr_t
         typealias LocalRelativePointer = Int32
         typealias MaybeRelativePointer = intptr_t
-
-        struct SwiftNominalTypeDescriptor {
-
-            /// Swift 5
-            var Flags: UInt32, Parent: UInt32
-
-            /// The mangled name of the nominal type.
-            var Name: LocalRelativePointer
-
-            /// Swift 5
-            var Accessor: LocalRelativePointer
-
-            /// The number of stored properties in the class, not including its
-            /// superclasses. If there is a field offset vector, this is its length.
-            var NumFields: UInt32
-            /// The offset of the field offset vector for this class's stored
-            /// properties in its metadata, if any. 0 means there is no field offset
-            /// vector.
-            ///
-            /// To deal with resilient superclasses correctly, this will
-            /// eventually need to be relative to the start of this class's
-            /// metadata area.
-            var FieldOffsetVectorOffset: UInt32
-
-            /// The field names. A doubly-null-terminated list of strings, whose
-            /// length and order is consistent with that of the field offset vector.
-            var FieldNames: LocalRelativePointer
-
-            /// The field type vector accessor. Returns a pointer to an array of
-            /// type metadata references whose order is consistent with that of the
-            /// field offset vector.
-            var GetFieldTypes: LocalRelativePointer
-        }
+        /** pointer to a function implementing a Swift method */
+        typealias SIMP = @convention(c) (_: AnyObject) -> Void
 
         /**
          Layout of a class instance. Needs to be kept in sync with ~swift/include/swift/Runtime/Metadata.h
          */
-        struct ClassMetadataSwift {
+        public struct TargetClassMetadata {
 
             public let MetaClass: uintptr_t, SuperClass: uintptr_t
             public let CacheData1: uintptr_t, CacheData2: uintptr_t
@@ -166,7 +149,35 @@ public struct TwoWayMirror {
             /// if this is an artificial subclass.  We currently provide no
             /// supported mechanism for making a non-artificial subclass
             /// dynamically.
-            public var Description: MaybeRelativePointer
+            public var Description: UnsafePointer<TargetClassDescriptor>!
+
+            public struct TargetClassDescriptor: NoLongerNominalDescriptor {
+
+                /// Swift 5
+                var Flags: UInt32, Parent: UInt32
+
+                /// The mangled name of the nominal type.
+                var Name: LocalRelativePointer
+
+                /// Swift 5
+                var AccessFunctionPtr: LocalRelativePointer
+                var Superclass: LocalRelativePointer
+                var MetadataNegativeSizeInWords: UInt32
+                var MetadataPositiveSizeInWords: UInt32
+                var NumImmediateMembers: UInt32
+
+                /// The number of stored properties in the class, not including its
+                /// superclasses. If there is a field offset vector, this is its length.
+                var NumFields: UInt32
+                /// The offset of the field offset vector for this class's stored
+                /// properties in its metadata, if any. 0 means there is no field offset
+                /// vector.
+                ///
+                /// To deal with resilient superclasses correctly, this will
+                /// eventually need to be relative to the start of this class's
+                /// metadata area.
+                var FieldOffsetVectorOffset: UInt32
+            }
 
             /// A function for destroying instance variables, used to clean up
             /// after an early return from a constructor.
@@ -180,60 +191,46 @@ public struct TwoWayMirror {
             //   - "tabulated" virtual methods
         }
 
-        /** pointer to a function implementing a Swift method */
-        typealias SIMP = @convention(c) (_: AnyObject) -> Void
-
-        struct SwiftStructMetadata {
+        public struct TargetStructMetadata {
             /// The kind. Only valid for non-class metadata; getKind() must be used to get
             /// the kind value.
-            let Kind: StoredPointer
+            public let Kind: StoredPointer
             /// An out-of-line description of the type.
-            var Description: MaybeRelativePointer
+            public var Description: UnsafePointer<TargetStructDescriptor>!
+
+            public struct TargetStructDescriptor: NoLongerNominalDescriptor {
+                let Flags: Int32, Parent: Int32, Name: Int32, AccessFunctionPtr: Int32
+                let NumFields: UInt32, FieldOffsetVectorOffset: UInt32
+            }
         }
 
         let type: Any.Type
-        var fieldTypes = [Any.Type]()
-        var fieldOffsets: UnsafePointer<StoredPointer>!
 
         public lazy var count: Int = {
-            return Int(self.description?.pointee.NumFields ?? 0)
+            return Int(self.description?.NumFields ?? 0)
         }()
 
         public var names = [String]()
+        var fieldTypes = [Any.Type]()
+        var fieldOffsets = [StoredPointer]()
 
-        lazy var description: UnsafeMutablePointer<SwiftNominalTypeDescriptor>?  = {
-            let classData = unsafeBitCast(self.type, to: UnsafeMutablePointer<ClassMetadataSwift>.self)
+        lazy var description: NoLongerNominalDescriptor?  = {
+            let classData = unsafeBitCast(self.type, to: UnsafeMutablePointer<TargetClassMetadata>.self)
             if classData.pointee.MetaClass == 1 {//|| classData.pointee.MetaClass == 2 {
-                var structData = unsafeBitCast(self.type, to: UnsafeMutablePointer<SwiftStructMetadata>.self)
-                return self.getDescription(ptr: &structData.pointee.Description)
+                var structData = unsafeBitCast(self.type, to: UnsafeMutablePointer<TargetStructMetadata>.self)
+                return structData.pointee.Description.pointee
             }
-            else if classData.pointee.MetaClass > 0x100000000 || classData.pointee.MetaClass == 0 {
-                return self.getDescription(ptr: &classData.pointee.Description)
+            else if classData.pointee.MetaClass > 0x100 || classData.pointee.MetaClass == 0 {
+                return classData.pointee.Description.pointee
             }
             else {
                 return nil
             }
         }()
 
-        func getDescription(ptr: UnsafeMutablePointer<MaybeRelativePointer>) -> UnsafeMutablePointer<SwiftNominalTypeDescriptor> {
-            if ptr.pointee < 0x100000000 {
-                return ptr.withMemoryRebound(to: Int8.self, capacity: 1) { $0.advanced(by: ptr.pointee) }
-                    .withMemoryRebound(to: SwiftNominalTypeDescriptor.self, capacity: 1) { $0 }
-            }
-            else {
-                return UnsafeMutablePointer<SwiftNominalTypeDescriptor>(bitPattern: ptr.pointee)!
-            }
-        }
-
-        func localRelativePointer<T>(field: UnsafePointer<LocalRelativePointer>, type: T.Type) -> UnsafePointer<T> {
-            return field.withMemoryRebound(to: Int8.self, capacity: 1) {
-                $0.advanced(by: Int(field.pointee)).withMemoryRebound(to: T.self, capacity: 1) { $0 }
-            }
-        }
-
         init(type: Any.Type) {
             self.type = type
-            if description != nil {
+            if let description = description {
                 struct StringRef {
                     let data: UnsafePointer<CChar>
                     let count: Int
@@ -245,13 +242,26 @@ public struct TwoWayMirror {
                     self.names.append(String(cString: name.data))
                     self.fieldTypes.append(unsafeBitCast(fieldInfo & ~0x3, to: Any.Type.self))
                 })
-                for field in 0 ..< description!.pointee.NumFields {
+                for field in 0 ..< description.NumFields {
                     swift_getFieldAt(base: self.type, index: field, callback: callback)
                 }
                 callback.destruct()
+                let classData = unsafeBitCast(self.type,
+                                              to: UnsafeMutablePointer<TargetClassMetadata>.self)
+                let typeWords = unsafeBitCast(self.type, to: UnsafePointer<StoredPointer>.self)
+                    .advanced(by: Int(description.FieldOffsetVectorOffset))
+                if classData.pointee.MetaClass == 1 {//|| classData.pointee.MetaClass == 2 {
+                    let typeWords = typeWords.withMemoryRebound(to: Int32.self, capacity: 1) { $0 }
+                    for field in 0 ..< Int(description.NumFields) {
+                        fieldOffsets.append( StoredPointer(typeWords[field]) )
+                    }
+                }
+                else if classData.pointee.MetaClass > 0x100 {
+                    for field in 0 ..< Int(description.NumFields) {
+                        fieldOffsets.append( typeWords[field] )
+                    }
+                }
             }
-            let typeWords = unsafeBitCast(self.type, to: UnsafePointer<StoredPointer>.self)
-            fieldOffsets = typeWords.advanced(by: Int(description?.pointee.FieldOffsetVectorOffset ?? 0))
         }
     }
 }
@@ -269,6 +279,14 @@ public extension SubScriptReflectable {
         set(newValue) {
             var object = self
             TwoWayMirror.reflect(object: &object, path: path, type: T.self).pointee = newValue
+        }
+    }
+    public subscript<T>(path: String) -> T {
+        get {
+            return self[path, T.self]
+        }
+        set(newValue) {
+            self[path, T.self] = newValue
         }
     }
 }
@@ -291,7 +309,7 @@ extension TwoWayMirror {
     /// - Returns: New initialised instance of instanceType
     /// - Throws: Any error encountered during encoding
     public static func decode<T: TwoWayContainable>(_ containableType: T.Type, from json: Data,
-                                 options: JSONSerialization.ReadingOptions = []) throws -> T {
+                                                    options: JSONSerialization.ReadingOptions = []) throws -> T {
         let any = try JSONSerialization.jsonObject(with: json, options: options)
         return try containableType.decodeElement(from: any)
     }
@@ -371,7 +389,7 @@ extension TwoWayMirror {
     }
 
     public static func cast<T>(_ any: Any, to type: T.Type,
-                        file: StaticString = #file, line: UInt = #line) throws -> T {
+                               file: StaticString = #file, line: UInt = #line) throws -> T {
         guard let cast = any as? T else {
             throw TWError("invalid cast of \(any) to \(T.self) at \(file)#\(line)")
         }
@@ -413,7 +431,7 @@ extension TwoWayCastable {
         #if os(Linux)
         if Self.self == Double.self {
             mirror[Double.self] = try (any as? Int).flatMap { Double($0) } ??
-                                    TwoWayMirror.cast(any, to: Double.self)
+                TwoWayMirror.cast(any, to: Double.self)
             return
         }
         #endif
